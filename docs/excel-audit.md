@@ -22,9 +22,9 @@ También quedaron fuera del proyecto las funcionalidades de cotizaciones, lista 
 - El formulario de `INVENTARIO_PT` captura `CODIGO` y `DETALLE`; precio/costos y existencias son columnas calculadas. Solo se completa automáticamente la ficha de costos cuando el código existe en la hoja visible `COSTOS_NO_PRODUCIDOS`.
 - `VENTAS` calcula `TOTAL` con cantidad, precio y descuento, y deriva el mes desde la fecha.
 - `CREDITOS` registra créditos y abonos por cliente y calcula la deuda resultante.
-- `GASTOS` conserva `MES` como campo manual; las filas visibles del libro usan `Otro`.
+- `GASTOS` captura solo fecha, detalle y valor. Los registros antiguos muestran el detalle desde `COMENTARIOS` o `CODIGO_MP` si `DETALLE` está vacío; cuando el detalle coincide con el código o nombre de un producto de `COSTOS_NO_PRODUCIDOS`, se conserva la clasificación del balance sin pedir campos adicionales.
 - `BALANCE` conserva un resumen por mes. Septiembre se carga como histórico y cada nuevo periodo guardado se agrega en el mismo módulo.
-- Los formularios respetan las columnas visibles del libro. Las columnas calculadas se generan al guardar: total de ENTRADAS, saldo neto de CLIENTES, valor/deuda/mes de CREDITOS, total/mes de VENTAS y costo total/margen de COSTOS_NO_PRODUCIDOS.
+- Los formularios respetan los campos necesarios de cada hoja y las tablas ocultan la columna auxiliar `Columna1`. Las columnas calculadas se generan al guardar: total de ENTRADAS, saldo neto de CLIENTES, valor/deuda/mes de CREDITOS, total/mes de VENTAS y costo total/margen de COSTOS_NO_PRODUCIDOS.
 - `COSTOS_NO_PRODUCIDOS` conserva los costos de productos comprados o no producidos.
 
 ## Datos cargados

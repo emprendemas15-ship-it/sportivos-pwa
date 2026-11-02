@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { downloadClientStatement, shareClientStatement } from './lib/client-statement'
@@ -272,7 +272,10 @@ function fromRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   const next = { ...row }
   if (module === 'INVENTARIO_PT') next.CONSIGNACION = row.CONSIGNACION ?? row['CONSIGNACIÓN'] ?? null
   if (module === 'ENTRADAS') next.Columna1 = Number(row.CANTIDAD ?? 0) * Number(row.PRECIO ?? 0)
-  if (module === 'GASTOS') next.MES = 'Otro'
+  if (module === 'GASTOS') {
+    next.DETALLE = String(row.DETALLE ?? '').trim() || String(row.COMENTARIOS ?? '').trim() || String(row.CODIGO_MP ?? '').trim() || null
+    next.MES = 'Otro'
+  }
   return next
 }
 function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
@@ -285,7 +288,11 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
     delete next.CONSIGNACION
   }
   if (module === 'ENTRADAS' || module === 'CLIENTES' || module === 'COSTOS_NO_PRODUCIDOS' || module === 'CREDITOS') delete next.Columna1
-  if (module === 'GASTOS') delete next.MES
+  if (module === 'GASTOS') {
+    delete next.MES
+    delete next.COMENTARIOS
+    delete next.CANTIDAD
+  }
   return next
 }
 
@@ -370,19 +377,61 @@ function SummaryCard({ label, value, note, tone }: { label: string; value: strin
 }
 
 function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onNotice }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onNotice: (message: string) => void }) {
-  const columns = moduleColumns[module]
+  const columns = moduleColumns[module].filter((column) => column.key !== 'Columna1')
   const isReport = module === 'BALANCE'
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">HOJA DEL LIBRO</p><h1>{module}</h1><p className="page-description">{moduleDescription(module)}</p></div>{editableModules.has(module) && <button className="primary-button" type="button" onClick={onNew}><span className="plus">+</span> Nuevo registro</button>}</div>
-    {isReport ? <ReportView data={data} /> : <section className="catalog-card"><div className="catalog-header"><div><h2>{module}</h2><p>{columns.length} columnas - {rows.length} de {totalRows} registros{module === 'CREDITOS' ? ' - orden cronológico según los filtros' : ' - busqueda en todos los campos'}</p></div>{module === 'CREDITOS' ? <CreditFilterControls rows={data.CREDITOS} filters={creditFilters} onChange={onCreditFiltersChange} /> : <label className="search-box"><span>?</span><input aria-label={'Buscar en ' + module} value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Buscar en la hoja..." /><kbd>Ctrl K</kbd></label>}</div><div className="table-wrap"><table><thead><tr>{columns.filter((column) => module !== 'CLIENTES' || column.key !== 'Columna1').map((column) => <th key={column.key}>{column.label}</th>)}{module === 'CLIENTES' && <><th>SALDO PENDIENTE</th><th>ESTADO DE CUENTA</th></>}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 1 : 0)} className="empty-state"><strong>{module === 'CREDITOS' && totalRows > 0 ? 'No hay movimientos con esos filtros' : 'Sin registros'}</strong><span>{module === 'CREDITOS' && totalRows > 0 ? 'Prueba con otro nombre, tipo o rango de fechas.' : 'Usa Nuevo registro para capturar un dato.'}</span></td></tr> : rows.map((row, index) => { const clientName = String(row.NOMBRE ?? '').trim(); const statementRows = getClientTransactions(data.CREDITOS, clientName); return <tr key={module + '-' + String(row.id ?? index)}>{columns.filter((column) => module !== 'CLIENTES' || column.key !== 'Columna1').map((column) => <td key={column.key}>{formatCell(row[column.key], column.key)}</td>)}{module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => downloadClientStatement(clientName, statementRows)}>Descargar PDF</button><button type="button" className="small-action" onClick={() => void shareClientStatement(clientName, statementRows, onNotice)}>Compartir</button></div></td></>}</tr> })}</tbody></table></div><footer className="table-footer"><span>Mostrando <strong>{rows.length}</strong> de <strong>{totalRows}</strong> registros</span>{module === 'CLIENTES' && <span className="footer-note">El saldo y estado de cuenta se calculan desde CREDITOS.</span>}</footer></section>}
+    {isReport ? <ReportView data={data} /> : <section className="catalog-card">
+      <div className="catalog-header">
+        <div><h2>{module}</h2><p>{columns.length} columnas - {rows.length} de {totalRows} registros{module === 'CREDITOS' ? ' - orden cronológico según los filtros' : ' - busqueda en todos los campos'}</p></div>
+        {module === 'CREDITOS' ? <CreditFilterControls rows={data.CREDITOS} filters={creditFilters} onChange={onCreditFiltersChange} /> : <label className="search-box"><span>?</span><input aria-label={'Buscar en ' + module} value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Buscar en la hoja..." /><kbd>Ctrl K</kbd></label>}
+      </div>
+      <div className="table-wrap"><table>
+        <thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{module === 'CLIENTES' && <><th>SALDO PENDIENTE</th><th>ESTADO DE CUENTA</th></>}</tr></thead>
+        <tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 2 : 0)} className="empty-state"><strong>{module === 'CREDITOS' && totalRows > 0 ? 'No hay movimientos con esos filtros' : 'Sin registros'}</strong><span>{module === 'CREDITOS' && totalRows > 0 ? 'Prueba con otro nombre, tipo o rango de fechas.' : 'Usa Nuevo registro para capturar un dato.'}</span></td></tr> : rows.map((row, index) => {
+          const clientName = String(row.NOMBRE ?? '').trim()
+          const statementRows = getClientTransactions(data.CREDITOS, clientName)
+          return <tr key={module + '-' + String(row.id ?? index)}>
+            {columns.map((column) => {
+              const value = module === 'GASTOS' && column.key === 'DETALLE'
+                ? String(row.DETALLE ?? '').trim() || String(row.COMENTARIOS ?? '').trim() || row.CODIGO_MP
+                : row[column.key]
+              return <td key={column.key}>{formatCell(value, column.key)}</td>
+            })}
+            {module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => downloadClientStatement(clientName, statementRows)}>Descargar PDF</button><button type="button" className="small-action" onClick={() => void shareClientStatement(clientName, statementRows, onNotice)}>Compartir</button></div></td></>}
+          </tr>
+        })}</tbody>
+      </table></div>
+      <footer className="table-footer"><span>Mostrando <strong>{rows.length}</strong> de <strong>{totalRows}</strong> registros</span>{module === 'CLIENTES' && <span className="footer-note">El saldo y estado de cuenta se calculan desde CREDITOS.</span>}</footer>
+    </section>}
   </section>
 }
 
 function CreditFilterControls({ rows, filters, onChange }: { rows: WorkbookRow[]; filters: CreditFilters; onChange: (filters: CreditFilters) => void }) {
+  const [isNameOptionsOpen, setIsNameOptionsOpen] = useState(false)
+  const [activeNameIndex, setActiveNameIndex] = useState(-1)
   const names = Array.from(new Set(rows.map((row) => String(row.NOMBRE ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'))
+  const matchingNames = names.filter((name) => name.toLocaleLowerCase('es').includes(filters.name.trim().toLocaleLowerCase('es')))
   const types = Array.from(new Set(rows.map((row) => String(row.TIPO ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'))
   const update = (key: keyof CreditFilters, value: string) => onChange({ ...filters, [key]: value })
   const hasFilters = Object.values(filters).some(Boolean)
+  const handleNameKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown' && matchingNames.length) {
+      event.preventDefault()
+      setIsNameOptionsOpen(true)
+      setActiveNameIndex((index) => Math.min(index + 1, matchingNames.length - 1))
+    } else if (event.key === 'ArrowUp' && matchingNames.length) {
+      event.preventDefault()
+      setIsNameOptionsOpen(true)
+      setActiveNameIndex((index) => Math.max(index - 1, 0))
+    } else if (event.key === 'Enter' && isNameOptionsOpen && matchingNames.length) {
+      event.preventDefault()
+      update('name', matchingNames[activeNameIndex] ?? matchingNames[0])
+      setIsNameOptionsOpen(false)
+    } else if (event.key === 'Escape') {
+      setIsNameOptionsOpen(false)
+    }
+  }
   const setDateRange = (range: 'month' | '30days') => {
     const today = new Date()
     const start = range === 'month' ? new Date(today.getFullYear(), today.getMonth(), 1) : new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29)
@@ -390,7 +439,12 @@ function CreditFilterControls({ rows, filters, onChange }: { rows: WorkbookRow[]
     onChange({ ...filters, from: localDate(start), to: localDate(today) })
   }
   return <div className="credit-filters" aria-label="Filtros de créditos">
-    <label>Nombre<input aria-label="Buscar movimientos por nombre" list="credit-client-name-options" placeholder="Escribe o elige una persona" value={filters.name} onChange={(event) => update('name', event.target.value)} /><datalist id="credit-client-name-options">{names.map((name) => <option key={name} value={name} />)}</datalist></label>
+    <label>Nombre<div className="client-name-field">
+      <input aria-label="Buscar movimientos por nombre" role="combobox" aria-autocomplete="list" aria-expanded={isNameOptionsOpen} aria-controls="credit-client-name-options" aria-activedescendant={isNameOptionsOpen && matchingNames.length && activeNameIndex >= 0 ? `credit-client-option-${activeNameIndex}` : undefined} placeholder="Escribe o elige una persona" value={filters.name} onFocus={() => setIsNameOptionsOpen(true)} onBlur={() => window.setTimeout(() => setIsNameOptionsOpen(false), 150)} onChange={(event) => { update('name', event.target.value); setActiveNameIndex(-1); setIsNameOptionsOpen(true) }} onKeyDown={handleNameKeyDown} />
+      {isNameOptionsOpen && <div className="client-name-options" id="credit-client-name-options" role="listbox" aria-label="Nombres de clientes">
+        {matchingNames.length ? matchingNames.map((name, index) => <button key={name} id={`credit-client-option-${index}`} type="button" role="option" aria-selected={filters.name === name} className={index === activeNameIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => { update('name', name); setIsNameOptionsOpen(false) }}>{name}</button>) : <span className="client-name-empty">No hay clientes coincidentes</span>}
+      </div>}
+    </div></label>
     <label>Tipo<select aria-label="Filtrar créditos por tipo" value={filters.type} onChange={(event) => update('type', event.target.value)}><option value="">Todos los tipos</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
     <label>Desde<input aria-label="Fecha desde" type="date" value={filters.from} onChange={(event) => update('from', event.target.value)} /></label>
     <label>Hasta<input aria-label="Fecha hasta" type="date" value={filters.to} onChange={(event) => update('to', event.target.value)} /></label>
@@ -471,17 +525,18 @@ function calculateBalance(data: Record<ModuleKey, WorkbookRow[]>, month: number,
   const receivables = Math.max(0, data.CREDITOS.reduce((total, row) => total + (isCreditType(row.TIPO) ? Number(row.VALOR ?? 0) : isAbonoType(row.TIPO) || isReturnType(row.TIPO) ? -Number(row.VALOR ?? 0) : 0), 0))
   const nonProducedCodes = new Set(data.COSTOS_NO_PRODUCIDOS.map((row) => String(row.CODIGO ?? '').trim().toLowerCase()).filter(Boolean))
   const nonProducedEntries = entries.filter((row) => nonProducedCodes.has(String(row.CODIGO ?? '').trim().toLowerCase()))
-  const codedExpenses = expenses.filter((row) => Boolean(String(row.CODIGO_MP ?? '').trim()))
-  const nonProducedExpenseRows = codedExpenses.filter((row) => nonProducedCodes.has(String(row.CODIGO_MP ?? '').trim().toLowerCase()))
-  const productionExpenseRows = codedExpenses.filter((row) => !nonProducedCodes.has(String(row.CODIGO_MP ?? '').trim().toLowerCase()))
+  const codedExpenses = expenses.filter((row) => Boolean(getExpenseCode(row, data)))
+  const nonProducedExpenseRows = codedExpenses.filter((row) => nonProducedCodes.has(getExpenseCode(row, data).toLowerCase()))
+  const productionExpenseRows = codedExpenses.filter((row) => !nonProducedCodes.has(getExpenseCode(row, data).toLowerCase()))
   const nonProducedCosts = entries.reduce((total, row) => total + (Number(row.Columna1 ?? 0) || Number(row.CANTIDAD ?? 0) * Number(row.PRECIO ?? 0)), 0) + sum(nonProducedExpenseRows, 'VALOR')
-  const operatingExpenses = sum(expenses.filter((row) => !String(row.CODIGO_MP ?? '').trim()), 'VALOR')
+  const operatingExpenses = sum(expenses.filter((row) => !getExpenseCode(row, data)), 'VALOR')
   const productionCosts = sum(productionExpenseRows, 'VALOR')
   const fixedCosts = nonProducedEntries.reduce((total, row) => {
     const catalog = data.COSTOS_NO_PRODUCIDOS.find((item) => String(item.CODIGO ?? '').trim().toLowerCase() === String(row.CODIGO ?? '').trim().toLowerCase())
     return total + Number(row.CANTIDAD ?? 0) * Number(catalog?.['COSTO FIJO'] ?? 0)
   }, 0) + nonProducedExpenseRows.reduce((total, row) => {
-    const catalog = data.COSTOS_NO_PRODUCIDOS.find((item) => String(item.CODIGO ?? '').trim().toLowerCase() === String(row.CODIGO_MP ?? '').trim().toLowerCase())
+    const expenseCode = getExpenseCode(row, data).toLowerCase()
+    const catalog = data.COSTOS_NO_PRODUCIDOS.find((item) => String(item.CODIGO ?? '').trim().toLowerCase() === expenseCode)
     return total + Number(row.CANTIDAD ?? 0) * Number(catalog?.['COSTO FIJO'] ?? 0)
   }, 0)
   const refunds = credits.filter((row) => isReturnType(row.TIPO)).reduce((total, row) => total + returnMarker(row.COMENTARIO).refund, 0)
@@ -600,7 +655,7 @@ function BalanceSection({ title, rows }: { title: string; rows: Array<[string, n
 
 function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; onClose: () => void; onSave: (row: WorkbookRow) => Promise<void> | void }) {
   const isCreditForm = module === 'CREDITOS'
-  const columns = moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS') && (column.key !== 'MES' || module === 'GASTOS'))
+  const columns = moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS'))
   const clientNames = useMemo(() => Array.from(new Set([...data.CLIENTES, ...data.CREDITOS].map((row) => String(row.NOMBRE ?? '').trim()).filter(Boolean))), [data.CLIENTES, data.CREDITOS])
   const creditKeys = ['TIPO', 'FECHA', 'NOMBRE', 'CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO', 'VALOR', 'COMENTARIO', 'MEDIO PAGO']
   const [values, setValues] = useState<WorkbookRow>(() => Object.fromEntries(columns.map((column) => [column.key, column.type === 'date' ? new Date().toISOString().slice(0, 10) : column.key === 'TIPO' ? CREDIT_TYPE : column.key === 'MES' && module === 'GASTOS' ? 'Otro' : column.key === 'COSTO FIJO' ? 500 : column.key === 'NOMBRE' && clientNames[0] ? clientNames[0] : column.type === 'number' ? '' : ''])) as WorkbookRow)
@@ -691,6 +746,7 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
           </label>
         })}</div>
         {module === 'INVENTARIO_PT' && <p className="form-hint">PRECIO, costo y existencias son calculados. Los costos se consultan en COSTOS_NO_PRODUCIDOS; las hojas de costos ocultas y consignaciones no se cargan en esta PWA.</p>}
+        {module === 'GASTOS' && <p className="form-hint">Si el detalle coincide con un producto del catálogo COSTOS_NO_PRODUCIDOS, el balance lo clasifica automáticamente; los demás se cuentan como gastos operativos.</p>}
         {isCreditForm && <div className="debt-preview" aria-live="polite">
           <div><span>Deuda actual de {selectedClient || 'cliente'}</span><strong>{currency.format(currentDebt)}</strong></div>
           <div><span>{isAbono ? 'Saldo despues del abono' : values.TIPO === 'Devolución' ? 'Saldo despues de la devolución' : 'Nueva deuda con este credito'}</span><strong className={projectedDebt < 0 ? 'debt-negative' : ''}>{currency.format(projectedDebt)}</strong></div>
@@ -732,6 +788,17 @@ function sumBy(rows: WorkbookRow[], groupKey: string, valueKey: string): Record<
   }, {})
 }
 function normalizeCode(value: CellValue): string { return String(value ?? '').trim().toLocaleLowerCase() }
+function normalizeExpenseText(value: CellValue): string {
+  return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+}
+function getExpenseCode(row: WorkbookRow, data: Record<ModuleKey, WorkbookRow[]>): string {
+  const code = String(row.CODIGO_MP ?? '').trim()
+  if (code) return code
+  const detail = normalizeExpenseText(row.DETALLE ?? row.COMENTARIOS)
+  if (!detail) return ''
+  const match = data.COSTOS_NO_PRODUCIDOS.find((item) => normalizeExpenseText(item.CODIGO) === detail || normalizeExpenseText(item.DETALLE) === detail)
+  return String(match?.CODIGO ?? '').trim()
+}
 function refundableProducts(rows: WorkbookRow[], clientName: string): Array<{ code: string; detail: string; available: number; unitPrice: number; outstandingValue: number }> {
   if (!clientName) return []
   const transactions = rows.filter((row) => String(row.NOMBRE ?? '').trim().toLocaleLowerCase() === clientName.trim().toLocaleLowerCase()).sort((a, b) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA))
@@ -861,6 +928,11 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     next.TOTAL = Number(next.CANT ?? 0) * Number(next.PRECIO ?? 0) - Number(next.DESCUENTO ?? 0)
     next.MES = monthName(String(next.FECHA ?? ''))
   }
+  if (module === 'GASTOS') {
+    next.DETALLE = String(next.DETALLE ?? '').trim()
+    next.CODIGO_MP = getExpenseCode(next, data) || null
+    next.MES = 'Otro'
+  }
   if (module === 'CREDITOS') {
     const type = isAbonoType(next.TIPO) ? 'Abono' : isReturnType(next.TIPO) ? 'Devolución' : CREDIT_TYPE
     const clientName = String(next.NOMBRE ?? '').trim()
@@ -922,7 +994,7 @@ function getMetrics(data: Record<ModuleKey, WorkbookRow[]>) {
   const cashSales = data.VENTAS.filter((row) => String(row.MEDIO_DE_PAGO).includes('Efectivo')).reduce((total, row) => total + Number(row.TOTAL ?? 0), 0)
   const transferSales = data.VENTAS.filter((row) => String(row.MEDIO_DE_PAGO).includes('Transferencia')).reduce((total, row) => total + Number(row.TOTAL ?? 0), 0)
   const expenses = data.GASTOS.reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
-  const materialExpenses = data.GASTOS.filter((row) => row.CODIGO_MP).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const materialExpenses = data.GASTOS.filter((row) => getExpenseCode(row, data)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const creditsPaid = data.CREDITOS.filter((row) => row.TIPO === 'Abono').reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const inventory = getRows('INVENTARIO_PT', data)
   const stock = inventory.reduce((total, row) => total + Number(row.STOCK ?? 0), 0)

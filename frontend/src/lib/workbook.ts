@@ -57,9 +57,9 @@ export const moduleColumns: Record<ModuleKey, Column[]> = {
     { key: 'MES', label: 'MES' },
   ],
   GASTOS: [
-    { key: 'FECHA', label: 'FECHA', type: 'date', required: true }, { key: 'CODIGO_MP', label: 'CODIGO_MP' },
-    { key: 'DETALLE', label: 'DETALLE' }, { key: 'COMENTARIOS', label: 'COMENTARIOS' },
-    { key: 'CANTIDAD', label: 'CANTIDAD', type: 'number' }, { key: 'VALOR', label: 'VALOR', type: 'number', required: true }, { key: 'MES', label: 'MES', type: 'select', options: ['Otro'] },
+    { key: 'FECHA', label: 'FECHA', type: 'date', required: true },
+    { key: 'DETALLE', label: 'DETALLE', required: true },
+    { key: 'VALOR', label: 'VALOR', type: 'number', required: true },
   ],
   CREDITOS: [
     { key: 'FECHA', label: 'FECHA', type: 'date', required: true }, { key: 'CODIGO', label: 'CODIGO' },
