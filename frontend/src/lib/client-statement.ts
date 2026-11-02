@@ -46,9 +46,23 @@ async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise
     const { width, height } = page.getSize()
     const draw = (text: unknown, x: number, y: number, size = 9, font = regular, color = muted) => page.drawText(safeText(text), { x, y, size, font, color })
     page.drawRectangle({ x: 0, y: height - 100, width, height: 100, color: green })
-    if (logo) page.drawImage(logo, { x: 38, y: height - 82, width: 62, height: 62 })
-    draw("SPORTIVO'S", logo ? 112 : 40, height - 49, 19, bold, rgb(1, 1, 1))
-    draw('ESTADO DE CUENTA DEL CLIENTE', logo ? 112 : 40, height - 70, 10, regular, rgb(0.88, 0.93, 0.88))
+    let headerTextX = 40
+    if (logo) {
+      const card = { x: 38, y: height - 76, width: 170, height: 52 }
+      const scale = Math.min(144 / logo.width, 36 / logo.height)
+      const logoWidth = logo.width * scale
+      const logoHeight = logo.height * scale
+      page.drawRectangle({ ...card, color: rgb(1, 1, 1), borderColor: rgb(0.88, 0.92, 0.88), borderWidth: 0.6 })
+      page.drawImage(logo, {
+        x: card.x + (card.width - logoWidth) / 2,
+        y: card.y + (card.height - logoHeight) / 2,
+        width: logoWidth,
+        height: logoHeight,
+      })
+      headerTextX = card.x + card.width + 14
+    }
+    draw("SPORTIVO'S", headerTextX, height - 49, 19, bold, rgb(1, 1, 1))
+    draw('ESTADO DE CUENTA DEL CLIENTE', headerTextX, height - 70, 10, regular, rgb(0.88, 0.93, 0.88))
     draw(`Pagina ${pageIndex + 1} de ${pages}`, width - 105, height - 49, 9, bold, rgb(1, 1, 1))
 
     const infoY = height - 155
