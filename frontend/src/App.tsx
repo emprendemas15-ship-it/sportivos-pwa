@@ -842,7 +842,8 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
 function formatCell(value: CellValue, key: string): string {
   const cleanValue = cleanExcelError(value)
   if (cleanValue === null || cleanValue === '') return '-'
-  if (key.includes('PRECIO') || key.includes('COSTO') || key === 'VALOR' || key === 'TOTAL' || key === 'DEUDA' || key === 'GANANCIA' || key === 'DESCUENTO') return currency.format(Number(cleanValue))
+  const normalizedKey = key.toLocaleUpperCase()
+  if (normalizedKey.includes('PRECIO') || normalizedKey.includes('COSTO') || ['VALOR', 'TOTAL', 'DEUDA', 'GANANCIA', 'DESCUENTO', 'COLUMNA1'].includes(normalizedKey)) return currency.format(Number(cleanValue))
   if (key === 'FECHA' || key === 'FECHA DE PAGO') return String(cleanValue).slice(0, 10)
   return typeof cleanValue === 'number' ? number.format(cleanValue) : String(cleanValue)
 }
