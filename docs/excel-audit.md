@@ -37,6 +37,8 @@ El historial de `BALANCE` se guarda en la tabla remota `balance` para compartir 
 
 En la revisión del 2 de noviembre de 2026, las cantidades de registros del libro y de la web coincidieron en `ENTRADAS` (273), `VENTAS` (9), `GASTOS` (32), `CREDITOS` (575), `CLIENTES` (63) y `COSTOS_NO_PRODUCIDOS` (230). `INVENTARIO_PT` tenía 222 filas en el libro y 223 en Supabase; el registro adicional de la web se conservó para no borrar datos ingresados desde la aplicación.
 
+En una verificación adicional del archivo actual, `VENTAS` (9/9) y `GASTOS` (32/32) coincidieron al normalizar las fechas y excluir los meses calculados; las filas repetidas de gastos también se cotejaron por separado. En `CREDITOS` se corrigió en Supabase un abono cuyo valor y deuda resultante diferían del libro; las 575 filas coinciden ahora. `CLIENTES` (63) coincide en sus datos fuente; la diferencia entre `Columna1 = 0` y `null` corresponde a un campo calculado y no cambia el saldo que la PWA deriva de `CREDITOS`. No se modificaron las demás hojas ni se eliminó el registro adicional de `INVENTARIO_PT`.
+
 Se corrigió `GANANCIA` para seguir la fórmula visible del libro (`PRECIO` menos `COSTO`) y se dejaron de mostrar como importes los códigos de error de Excel presentes en columnas calculadas.
 
 Quedan dos diferencias de valores que requieren decisión antes de forzar una copia literal:

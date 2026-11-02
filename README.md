@@ -2,7 +2,7 @@
 
 Aplicación web progresiva basada en las hojas visibles de `SPORTIVOS (1) (1).xlsm`. La PWA incluye `MENU`, `INVENTARIO_PT`, `COSTOS_NO_PRODUCIDOS`, `ENTRADAS`, `CLIENTES`, `CREDITOS`, `VENTAS`, `GASTOS` y un único módulo `BALANCE` con historial mensual. `BALANCE SEPTIEMBRE` se muestra como el cierre histórico de septiembre, no como otro módulo.
 
-La auditoría de hojas, formularios, columnas y cálculos está en [docs/excel-audit.md](./docs/excel-audit.md).
+También se incorporó el módulo `VALIDACION CREDITOS`, alimentado por `CREDITOS (2).xlsm`, con migración por persona, compras, abonos, saldos pendientes y detalle individual por cliente. La auditoría de hojas, formularios, columnas y cálculos está en [docs/excel-audit.md](./docs/excel-audit.md).
 
 ## Desarrollo y validación
 
@@ -18,6 +18,8 @@ npm run lint --workspace=frontend
 ## Datos y publicación
 
 Los registros de las siete hojas de datos se sincronizan con Supabase. El historial de balances se guarda en la tabla `balance` para que los cierres se compartan entre dispositivos. La importación desde el libro se prepara con `scripts/migrate-excel-to-supabase.ps1`; `-Preview` valida cantidades y columnas sin escribir datos.
+
+En cada tabla de datos se puede borrar un registro con confirmación; al sincronizar de nuevo se recalculan las existencias y los saldos derivados. Los balances ya guardados se conservan como cierres históricos y se actualizan al generar y guardar otra vez el periodo.
 
 La publicación está configurada en `.github/workflows/pages.yml`. GitHub Actions necesita los secretos `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`. El archivo local `frontend/.env.local` no se sube al repositorio.
 

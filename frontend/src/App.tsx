@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { downloadClientStatement, shareClientStatement } from './lib/client-statement'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
+import { getValidationCreditPeople, getValidationCreditSummary } from './lib/credit-validation'
 
 const currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const number = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 })
@@ -14,6 +15,7 @@ const menuItems: Array<{ key: ModuleKey | 'MENU'; label: string; group: string; 
   { key: 'VENTAS', label: 'VENTAS', group: 'MOVIMIENTOS', icon: 'V' },
   { key: 'GASTOS', label: 'GASTOS', group: 'MOVIMIENTOS', icon: '-' },
   { key: 'CREDITOS', label: 'CREDITOS', group: 'CARTERA', icon: '$' },
+  { key: 'VALIDACION_CREDITOS', label: 'VALIDACION CREDITOS', group: 'CARTERA', icon: 'VC' },
   { key: 'CLIENTES', label: 'CLIENTES', group: 'CARTERA', icon: 'C' },
   { key: 'COSTOS_NO_PRODUCIDOS', label: 'COSTOS_NO_PRODUCIDOS', group: 'COSTOS', icon: 'NP' },
   { key: 'BALANCE', label: 'BALANCE', group: 'REPORTES', icon: 'B' },
@@ -33,6 +35,7 @@ function App() {
   const [creditFilters, setCreditFilters] = useState<CreditFilters>({ name: '', type: '', from: '', to: '' })
   const [showForm, setShowForm] = useState(false)
   const [notice, setNotice] = useState('')
+  const [deletingRecord, setDeletingRecord] = useState<string | null>(null)
 
   const rows = useMemo(() => {
     const currentRows = getRows(active, data)
@@ -82,13 +85,58 @@ function App() {
       const result = await client.from(table).insert(toRemoteRow(active, normalized))
       if (result.error) throw new Error(result.error.message)
       markWriteSuccess()
-      await refreshAll()
+      const refreshed = await refreshAll()
       setShowForm(false)
-      flashNotice('Registro guardado en ' + active + ' y sincronizado.')
+      flashNotice(refreshed ? 'Registro guardado en ' + active + ' y sincronizado.' : 'Registro guardado en ' + active + ', pero no se pudieron actualizar los datos.')
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error desconocido'
       markWriteFailure('La base está en línea, pero no se pudo guardar el registro. ' + message)
       flashNotice('No se pudo guardar: ' + message)
+    }
+  }
+
+  async function deleteRow(module: ModuleKey, row: WorkbookRow) {
+    const table = remoteTableByModule[module]
+    if (!editableModules.has(module) || !table) return
+    if (syncState !== 'synced') {
+      flashNotice('No se eliminó: espera a que aparezca la conexión con la base compartida.')
+      return
+    }
+    if (!supabase) {
+      flashNotice('No se eliminó: falta conexión con la base compartida.')
+      return
+    }
+    if (row.id === null || row.id === undefined || row.id === '') {
+      flashNotice('No se eliminó: el registro no tiene un identificador de la base compartida.')
+      return
+    }
+    const recordKey = `${module}:${row.id}`
+    if (deletingRecord) return
+    const description = [
+      row.FECHA ? `Fecha: ${String(row.FECHA)}` : '',
+      row.NOMBRE ? `Cliente: ${String(row.NOMBRE)}` : '',
+      row.TIPO ? `Tipo: ${String(row.TIPO)}` : '',
+      row.CODIGO ? `Código: ${String(row.CODIGO)}` : '',
+      row.DETALLE ? `Detalle: ${String(row.DETALLE)}` : '',
+      row.VALOR !== null && row.VALOR !== undefined ? `Valor: ${currency.format(Number(row.VALOR))}` : '',
+    ].filter(Boolean).join('\n')
+    if (!window.confirm(`¿Eliminar este registro de ${module}?\n\n${description}\n\nSe recalcularán las existencias y los saldos derivados. Los balances guardados son cierres históricos; si este cambio los afecta, vuelve a generar y guardar el periodo. Esta acción no se puede deshacer.`)) return
+
+    setDeletingRecord(recordKey)
+    try {
+      const client = supabase as any
+      const result = await client.from(table).delete().eq('id', row.id).select('id')
+      if (result.error) throw new Error(result.error.message)
+      if (result.data?.length !== 1) throw new Error('No se encontró el registro para eliminarlo.')
+      markWriteSuccess()
+      const refreshed = await refreshAll(true)
+      flashNotice(refreshed ? `Registro eliminado de ${module}; datos y cálculos actualizados.` : `Registro eliminado de ${module}, pero no se pudieron actualizar los datos. Pulsa Actualizar.`)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido'
+      markWriteFailure('La base está en línea, pero no se pudo eliminar el registro. ' + message)
+      flashNotice('No se pudo eliminar: ' + message)
+    } finally {
+      setDeletingRecord(null)
     }
   }
 
@@ -120,7 +168,7 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-    {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onNotice={flashNotice} />}
+      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onDelete={deleteRow} deletingRecord={deletingRecord} onNotice={flashNotice} />}
     </main>
     {showForm && active !== 'MENU' && <RecordForm module={active} data={data} onClose={() => setShowForm(false)} onSave={saveRow} />}
   </div>
@@ -135,6 +183,7 @@ function useWorkbookSync() {
   const manualRefreshQueued = useRef(false)
   const hasLoadedRemote = useRef(false)
   const writeBlockedRef = useRef(false)
+  const refreshAllRef = useRef<((showNotice?: boolean) => Promise<boolean>) | null>(null)
 
   const markWriteFailure = useCallback((message: string) => {
     writeBlockedRef.current = true
@@ -147,16 +196,16 @@ function useWorkbookSync() {
     setSyncError('')
   }, [])
 
-  const refreshAll = useCallback(async (showNotice = false) => {
+  const refreshAll = useCallback(async (showNotice = false): Promise<boolean> => {
     if (!supabase) {
       setSyncState('error')
       setSyncError('Esta aplicación no está conectada a la base compartida. No guardes registros desde esta versión.')
       if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo actualizar: falta configurar la base compartida.' }))
-      return
+      return false
     }
     if (refreshInFlight.current) {
       if (showNotice) manualRefreshQueued.current = true
-      return
+      return showNotice
     }
     refreshInFlight.current = true
     if (!hasLoadedRemote.current || showNotice) setSyncState('syncing')
@@ -168,16 +217,25 @@ function useWorkbookSync() {
       setSyncState('synced')
       window.dispatchEvent(new CustomEvent('sportivos:balance-updated'))
       if (showNotice || manualRefreshQueued.current) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Datos recargados y existencias recalculadas con los códigos normalizados. Solo se recuperan registros guardados en la base.' }))
-      manualRefreshQueued.current = false
+      return true
     } catch (error) {
       setSyncState('error')
       setSyncError('No hay conexión con la base compartida. Los cambios no se guardan; vuelve a conectar y pulsa Actualizar. ' + (error instanceof Error ? error.message : ''))
       if (showNotice || manualRefreshQueued.current) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo actualizar desde la base compartida.' }))
-      manualRefreshQueued.current = false
+      return false
     } finally {
+      const refreshQueued = manualRefreshQueued.current
+      manualRefreshQueued.current = false
       refreshInFlight.current = false
+      if (refreshQueued) window.setTimeout(() => {
+        const refresh = refreshAllRef.current
+        if (refresh) void refresh(true)
+      }, 0)
     }
   }, [])
+  useEffect(() => {
+    refreshAllRef.current = refreshAll
+  }, [refreshAll])
 
   useEffect(() => {
     void refreshAll()
@@ -300,6 +358,77 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   return next
 }
 
+function ValidationCreditView() {
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<string | null>(null)
+  const summary = useMemo(() => getValidationCreditSummary(), [])
+  const people = useMemo(() => getValidationCreditPeople(search), [search])
+  const filteredSummary = useMemo(() => {
+    const totals = people.reduce((acc, person) => {
+      acc.totalCompras += person.totalCompras
+      acc.totalAbonos += person.totalAbonos
+      acc.totalDescuentos += person.totalDescuentos
+      acc.carteraPendiente += Math.max(0, person.saldoPendiente)
+      if (person.saldoPendiente > 0) acc.personasConSaldoPendiente += 1
+      if (person.saldoPendiente <= 0) acc.personasAlDia += 1
+      return acc
+    }, { totalCompras: 0, totalAbonos: 0, totalDescuentos: 0, carteraPendiente: 0, personasConSaldoPendiente: 0, personasAlDia: 0 })
+    return {
+      ...summary,
+      totalPersonas: people.length,
+      ...totals,
+    }
+  }, [people, summary])
+
+  return <section className="page-content">
+    <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Migración del archivo CREDITOS (2).xlsm con personas, compras, abonos y saldos pendientes por hoja.</p></div></div>
+    <div className="summary-grid">
+      <SummaryCard label="Total personas" value={number.format(filteredSummary.totalPersonas)} note="Personas registradas" tone="blue" />
+      <SummaryCard label="Cartera pendiente" value={currency.format(filteredSummary.carteraPendiente)} note="Saldo neto por persona" tone="amber" />
+      <SummaryCard label="Total compras" value={currency.format(filteredSummary.totalCompras)} note="Créditos otorgados" tone="green" />
+      <SummaryCard label="Total abonos" value={currency.format(filteredSummary.totalAbonos)} note="Pagos y abonos recibidos" tone="rose" />
+      <SummaryCard label="Con saldo" value={number.format(filteredSummary.personasConSaldoPendiente)} note="Personas con deuda" tone="red" />
+      <SummaryCard label="Al día" value={number.format(filteredSummary.personasAlDia)} note="Personas sin saldo" tone="teal" />
+    </div>
+
+    <section className="catalog-card">
+      <div className="catalog-header">
+        <div><h2>Listado de personas</h2><p>{people.length} resultados de {summary.totalPersonas} registros importados.</p></div>
+        <label className="search-box"><span>?</span><input aria-label="Buscar persona de validación de créditos" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, código o hoja..." /><kbd>Ctrl K</kbd></label>
+      </div>
+      <div className="table-wrap"><table>
+        <thead><tr><th>Persona</th><th>Saldo pendiente</th><th>Total compras</th><th>Total abonado</th><th>Último movimiento</th><th>Estado</th></tr></thead>
+        <tbody>
+          {people.length === 0 ? <tr><td colSpan={6} className="empty-state"><strong>Sin coincidencias</strong><span>No aparecen personas con ese filtro.</span></td></tr> : people.map((person) => {
+            const isSelected = selected === person.sheet
+            return <Fragment key={person.sheet}>
+              <tr className={isSelected ? 'selected-row' : ''} onClick={() => setSelected(isSelected ? null : person.sheet)} style={{ cursor: 'pointer' }}>
+                <td>{person.name}</td>
+                <td>{currency.format(person.saldoPendiente)}</td>
+                <td>{currency.format(person.totalCompras)}</td>
+                <td>{currency.format(person.totalAbonos)}</td>
+                <td>{person.ultimoMovimiento ? new Date(person.ultimoMovimiento + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                <td><span className={person.estado === 'PENDIENTE' ? 'status-pill pending' : 'status-pill ok'}>{person.estado === 'PENDIENTE' ? 'Pendiente' : 'Al día'}</span></td>
+              </tr>
+              {isSelected && <tr>
+                <td colSpan={6} style={{ background: '#f7faf8', padding: '16px 18px' }}>
+                  <div style={{ display: 'grid', gap: '12px' }}>
+                    <strong>Ficha de {person.name}</strong>
+                    <div className="table-wrap"><table>
+                      <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th></tr></thead>
+                      <tbody>{person.transactions.slice(-8).map((row, index) => <tr key={`${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td></tr>)}</tbody>
+                    </table></div>
+                  </div>
+                </td>
+              </tr>}
+            </Fragment>
+          })}
+        </tbody>
+      </table></div>
+    </section>
+  </section>
+}
+
 function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, WorkbookRow[]>; balances: MonthlyBalance[]; onNavigate: (module: ModuleKey | 'MENU') => void }) {
   const metrics = getMetrics(data)
   return <section className="page-content home-page">
@@ -312,7 +441,7 @@ function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, Workbook
     </div>
     <BalanceTrend balances={balances} />
     <section className="menu-card home-module-menu"><div className="section-heading"><div><h2>HOJAS Y FORMULARIOS</h2><p>Acceso directo a cada modulo visible del archivo original.</p></div></div>
-      <div className="module-grid">{menuItems.filter((item) => item.key !== 'MENU').map((item) => <button key={item.key} className="module-tile" type="button" onClick={() => onNavigate(item.key)}><span className="tile-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.key === 'BALANCE' ? 'Historial mensual' : `${data[item.key as ModuleKey].length} registros`}</small></span><span className="tile-arrow">-&gt;</span></button>)}</div>
+      <div className="module-grid">{menuItems.filter((item) => item.key !== 'MENU').map((item) => <button key={item.key} className="module-tile" type="button" onClick={() => onNavigate(item.key)}><span className="tile-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.key === 'BALANCE' ? 'Historial mensual' : item.key === 'VALIDACION_CREDITOS' ? `${getValidationCreditSummary().totalPersonas} personas` : `${data[item.key as ModuleKey].length} registros`}</small></span><span className="tile-arrow">-&gt;</span></button>)}</div>
     </section>
   </section>
 }
@@ -380,9 +509,10 @@ function SummaryCard({ label, value, note, tone }: { label: string; value: strin
   return <article className="summary-card"><div className="summary-top"><span>{label}</span><span className={'summary-icon ' + tone}>*</span></div><strong>{value}</strong><small>{note}</small></article>
 }
 
-function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onNotice }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onNotice: (message: string) => void }) {
+function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onDelete, deletingRecord, onNotice }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onDelete: (module: ModuleKey, row: WorkbookRow) => void; deletingRecord: string | null; onNotice: (message: string) => void }) {
   const columns = moduleColumns[module].filter((column) => column.key !== 'Columna1')
   const isReport = module === 'BALANCE'
+  const canDelete = editableModules.has(module)
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">HOJA DEL LIBRO</p><h1>{module}</h1><p className="page-description">{moduleDescription(module)}</p></div>{editableModules.has(module) && <button className="primary-button" type="button" onClick={onNew}><span className="plus">+</span> Nuevo registro</button>}</div>
     {isReport ? <ReportView data={data} /> : <section className="catalog-card">
@@ -391,10 +521,11 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
         {module === 'CREDITOS' ? <CreditFilterControls rows={data.CREDITOS} filters={creditFilters} onChange={onCreditFiltersChange} /> : <label className="search-box"><span>?</span><input aria-label={'Buscar en ' + module} value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Buscar en la hoja..." /><kbd>Ctrl K</kbd></label>}
       </div>
       <div className="table-wrap"><table>
-        <thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{module === 'CLIENTES' && <><th>SALDO PENDIENTE</th><th>ESTADO DE CUENTA</th></>}</tr></thead>
-        <tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 2 : 0)} className="empty-state"><strong>{module === 'CREDITOS' && totalRows > 0 ? 'No hay movimientos con esos filtros' : 'Sin registros'}</strong><span>{module === 'CREDITOS' && totalRows > 0 ? 'Prueba con otro nombre, tipo o rango de fechas.' : 'Usa Nuevo registro para capturar un dato.'}</span></td></tr> : rows.map((row, index) => {
+        <thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{module === 'CLIENTES' && <><th>SALDO PENDIENTE</th><th>ESTADO DE CUENTA</th></>}{canDelete && <th>ACCIONES</th>}</tr></thead>
+        <tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 2 : 0) + (canDelete ? 1 : 0)} className="empty-state"><strong>{module === 'CREDITOS' && totalRows > 0 ? 'No hay movimientos con esos filtros' : 'Sin registros'}</strong><span>{module === 'CREDITOS' && totalRows > 0 ? 'Prueba con otro nombre, tipo o rango de fechas.' : 'Usa Nuevo registro para capturar un dato.'}</span></td></tr> : rows.map((row, index) => {
           const clientName = String(row.NOMBRE ?? '').trim()
           const statementRows = getClientTransactions(data.CREDITOS, clientName)
+          const recordKey = `${module}:${row.id ?? index}`
           return <tr key={module + '-' + String(row.id ?? index)}>
             {columns.map((column) => {
               const value = module === 'GASTOS' && column.key === 'DETALLE'
@@ -403,6 +534,7 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
               return <td key={column.key}>{formatCell(value, column.key)}</td>
             })}
             {module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => downloadClientStatement(clientName, statementRows)}>Descargar PDF</button><button type="button" className="small-action" onClick={() => void shareClientStatement(clientName, statementRows, onNotice)}>Compartir</button></div></td></>}
+            {canDelete && <td className="row-actions"><button type="button" className="delete-button" disabled={deletingRecord !== null} onClick={() => onDelete(module, row)} aria-label={`Borrar registro de ${module}`} title="Borrar registro">{deletingRecord === recordKey ? 'Borrando…' : 'Borrar'}</button></td>}
           </tr>
         })}</tbody>
       </table></div>
@@ -1015,6 +1147,7 @@ function moduleDescription(module: ModuleKey): string {
     CLIENTES: 'Listado de clientes usados por los formularios.',
     COSTOS_NO_PRODUCIDOS: 'Costos de productos comprados o no producidos.',
     BALANCE: 'Reporte mensual de ventas, recaudo, egresos, retiro y fondo.',
+    VALIDACION_CREDITOS: 'Validación de cartera por persona importada desde CREDITOS (2).xlsm.',
   }
   return descriptions[module] ?? ''
 }

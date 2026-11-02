@@ -10,6 +10,7 @@ export type ModuleKey =
   | 'CLIENTES'
   | 'COSTOS_NO_PRODUCIDOS'
   | 'BALANCE'
+  | 'VALIDACION_CREDITOS'
 
 export type Column = {
   key: string
@@ -76,6 +77,7 @@ export const moduleColumns: Record<ModuleKey, Column[]> = {
     { key: 'PRECIO AL PUBLICO', label: 'PRECIO AL PUBLICO', type: 'number', required: true }, { key: 'Columna1', label: 'Columna1', type: 'number' },
   ],
   BALANCE: [],
+  VALIDACION_CREDITOS: [],
 }
 
 const pt = (code: string, detail: string, price: number, wholesale: number, cost: number, stock: number): WorkbookRow => ({
@@ -125,6 +127,7 @@ export const initialData: Record<ModuleKey, WorkbookRow[]> = {
     { CODIGO: 'JGT', DETALLE: 'JUGUETE GRANDE TEJIDO', COSTO: 5060, 'COSTO FIJO': 500, 'COSTO TOTAL': 5560, 'PRECIO AL PUBLICO': 12002, Columna1: 6442 },
   ],
   BALANCE: [],
+  VALIDACION_CREDITOS: [],
 }
 
 export function cloneInitialData(): Record<ModuleKey, WorkbookRow[]> {

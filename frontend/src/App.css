@@ -63,6 +63,10 @@
 .brand-logo { display: block; width: 100%; max-height: 58px; object-fit: contain; object-position: left center; }
 .field-disabled { color: #a6afa9 !important; }
 .form-grid input:disabled, .form-grid select:disabled { color: #9aa59e; background: #f1f4f1; border-color: #e7ece7; cursor: not-allowed; }
+.row-actions { width: 1%; }
+.delete-button { min-height: 32px; padding: 0 10px; border: 1px solid #f0d7d4; border-radius: 6px; color: #a8473e; background: #fff8f7; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.delete-button:hover:not(:disabled) { border-color: #d99a93; background: #fff0ee; }
+.delete-button:disabled { cursor: wait; opacity: .6; }
 .debt-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; padding: 14px; border: 1px solid #dce9df; border-radius: 8px; background: #f7fbf7; }
 .debt-preview div { display: grid; gap: 5px; }
 .debt-preview span { color: #738177; font-size: 10px; }
