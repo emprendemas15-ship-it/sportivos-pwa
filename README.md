@@ -21,6 +21,8 @@ Los registros de las siete hojas de datos se sincronizan con Supabase. El histor
 
 La publicación está configurada en `.github/workflows/pages.yml`. GitHub Actions necesita los secretos `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`. El archivo local `frontend/.env.local` no se sube al repositorio.
 
+La PWA conserva un identificador y una URL de inicio estables para que el acceso directo instalado siga apuntando a la misma aplicación. Al abrirla, volver a enfocarla o recuperar conexión, comprueba si hay una nueva versión; mientras permanece abierta, vuelve a comprobarla cada minuto y se actualiza automáticamente.
+
 La PWA queda pública y sin inicio de sesión, según lo solicitado. Por ello, los nombres de clientes, créditos y demás información de la base son accesibles públicamente mediante la aplicación y la API.
 
 ## Estructura
