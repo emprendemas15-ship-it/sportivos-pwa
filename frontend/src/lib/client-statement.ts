@@ -3,11 +3,7 @@ import type { WorkbookRow } from './workbook'
 const cop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 })
 
 function safeText(value: unknown): string {
-  return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ñ/g, 'n').replace(/Ñ/g, 'N').replace(/[^\x20-\x7E]/g, ' ')
-}
-
-function pdfEscape(value: unknown): string {
-  return safeText(value).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
+  return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ')
 }
 
 function formatDate(value: unknown): string {
@@ -15,78 +11,106 @@ function formatDate(value: unknown): string {
     const date = new Date(Date.UTC(1899, 11, 30) + value * 86400000)
     return date.toLocaleDateString('es-CO', { timeZone: 'UTC' })
   }
-  const raw = String(value ?? '')
-  const parsed = new Date(raw)
-  return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString('es-CO', { timeZone: 'UTC' })
+  const parsed = new Date(String(value ?? ''))
+  return Number.isNaN(parsed.getTime()) ? safeText(value) : parsed.toLocaleDateString('es-CO', { timeZone: 'UTC' })
 }
 
 function reducesDebt(value: unknown): boolean {
-  return ['abono', 'devolución', 'devolucion'].includes(String(value ?? '').toLowerCase())
+  return ['abono', 'devolucion'].includes(safeText(value).toLowerCase())
 }
 
-function makePdf(clientName: string, transactions: WorkbookRow[]): Blob {
-  const pageSize = 30
+async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise<Blob> {
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
+  const green = rgb(0.11, 0.29, 0.21)
+  const lightGreen = rgb(0.91, 0.95, 0.91)
+  const muted = rgb(0.35, 0.41, 0.37)
+  const pdf = await PDFDocument.create()
+  const regular = await pdf.embedFont(StandardFonts.Helvetica)
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
+  const pageSize = 25
   const pages = Math.max(1, Math.ceil(transactions.length / pageSize))
-  const objects: string[] = []
-  const pageRefs: number[] = []
-  objects[1] = '<< /Type /Catalog /Pages 2 0 R >>'
-  objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'
-  objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'
-  const pageContentRefs: number[] = []
+  const ordered = [...transactions].sort((a, b) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA))
+  const totalCharges = ordered.filter((row) => !reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const totalPayments = ordered.filter((row) => reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const totalRefunds = ordered.filter((row) => safeText(row.TIPO).toLowerCase() === 'devolucion').reduce((total, row) => total + Number(String(row.COMENTARIO ?? '').match(/REEMBOLSO:(\d+(?:\.\d+)?)/i)?.[1] ?? 0), 0)
+  const finalBalance = totalCharges - totalPayments
+  const createdAt = new Date().toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })
+  let logo: Awaited<ReturnType<typeof pdf.embedPng>> | null = null
+  try {
+    const response = await fetch(`${import.meta.env.BASE_URL}logo-sportivos.png`)
+    if (response.ok) logo = await pdf.embedPng(await response.arrayBuffer())
+  } catch { /* El documento conserva su encabezado de marca aunque el logo no esté disponible. */ }
+
   for (let pageIndex = 0; pageIndex < pages; pageIndex += 1) {
-    const pageObject = 5 + pageIndex * 2
-    const streamObject = pageObject + 1
-    pageRefs.push(pageObject)
-    pageContentRefs.push(streamObject)
-    const chunk = transactions.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize)
-    const commands: string[] = []
-    const draw = (x: number, y: number, size: number, text: string, bold = false) => {
-      commands.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf 1 0 0 1 ${x} ${y} Tm (${pdfEscape(text)}) Tj ET`)
+    const page = pdf.addPage([595, 842])
+    const { width, height } = page.getSize()
+    const draw = (text: unknown, x: number, y: number, size = 9, font = regular, color = muted) => page.drawText(safeText(text), { x, y, size, font, color })
+    page.drawRectangle({ x: 0, y: height - 100, width, height: 100, color: green })
+    if (logo) page.drawImage(logo, { x: 38, y: height - 82, width: 62, height: 62 })
+    draw("SPORTIVO'S", logo ? 112 : 40, height - 49, 19, bold, rgb(1, 1, 1))
+    draw('ESTADO DE CUENTA DEL CLIENTE', logo ? 112 : 40, height - 70, 10, regular, rgb(0.88, 0.93, 0.88))
+    draw(`Pagina ${pageIndex + 1} de ${pages}`, width - 105, height - 49, 9, bold, rgb(1, 1, 1))
+
+    const infoY = height - 155
+    page.drawRectangle({ x: 38, y: infoY - 42, width: 519, height: 66, color: lightGreen, borderColor: rgb(0.82, 0.87, 0.82), borderWidth: 0.7 })
+    draw('CLIENTE', 52, infoY + 8, 7, bold, green)
+    draw(clientName, 52, infoY - 10, 12, bold, green)
+    draw('FECHA DE GENERACION', 310, infoY + 8, 7, bold, green)
+    draw(createdAt, 310, infoY - 10, 9, regular, green)
+    draw('MOVIMIENTOS', 52, infoY - 31, 7, bold, green)
+    draw(String(ordered.length), 142, infoY - 31, 8, regular, green)
+
+    const summaryY = infoY - 84
+    const boxes = [
+      { x: 38, title: 'TOTAL CARGOS', amount: totalCharges },
+      { x: 170, title: 'ABONOS A DEUDA', amount: totalPayments },
+      { x: 302, title: 'REEMBOLSOS', amount: totalRefunds },
+      { x: 434, title: 'SALDO PENDIENTE', amount: finalBalance },
+    ]
+    for (const box of boxes) {
+      page.drawRectangle({ x: box.x, y: summaryY - 30, width: 123, height: 48, color: rgb(1, 1, 1), borderColor: rgb(0.82, 0.87, 0.82), borderWidth: 0.7 })
+      draw(box.title, box.x + 9, summaryY + 4, 6.5, bold, muted)
+      draw(`$ ${cop.format(box.amount)}`, box.x + 9, summaryY - 17, 12, bold, green)
     }
-    draw(40, 800, 17, "SPORTIVO'S - ESTADO DE CUENTA", true)
-    draw(40, 778, 11, `Cliente: ${clientName}`, true)
-    draw(40, 761, 9, `Movimientos de creditos y abonos | Pagina ${pageIndex + 1} de ${pages}`)
-    draw(40, 735, 9, 'FECHA', true); draw(116, 735, 9, 'TIPO / DETALLE', true)
-    draw(380, 735, 9, 'CARGO', true); draw(451, 735, 9, 'ABONO', true); draw(520, 735, 9, 'SALDO', true)
-    commands.push('0.55 w 40 728 m 555 728 l S')
-    let balance = transactions.slice(0, pageIndex * pageSize).reduce((total, row) => total + (reducesDebt(row.TIPO) ? -Number(row.VALOR ?? 0) : Number(row.VALOR ?? 0)), 0)
+
+    let y = summaryY - 64
+    const columns = [38, 103, 326, 404, 478, 557]
+    page.drawRectangle({ x: 38, y: y - 7, width: 519, height: 23, color: green })
+    draw('FECHA', columns[0] + 8, y, 7, bold, rgb(1, 1, 1))
+    draw('MOVIMIENTO / DETALLE', columns[1] + 8, y, 7, bold, rgb(1, 1, 1))
+    draw('CARGO', columns[2] + 8, y, 7, bold, rgb(1, 1, 1))
+    draw('ABONO', columns[3] + 8, y, 7, bold, rgb(1, 1, 1))
+    draw('SALDO', columns[4] + 8, y, 7, bold, rgb(1, 1, 1))
+    let balance = ordered.slice(0, pageIndex * pageSize).reduce((total, row) => total + (reducesDebt(row.TIPO) ? -Number(row.VALOR ?? 0) : Number(row.VALOR ?? 0)), 0)
+    const chunk = ordered.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize)
     chunk.forEach((row, index) => {
-      const y = 710 - index * 21
-      const isPayment = reducesDebt(row.TIPO)
+      const rowY = y - 24 - index * 19
+      if (index % 2 === 0) page.drawRectangle({ x: 38, y: rowY - 5, width: 519, height: 19, color: rgb(0.97, 0.98, 0.97) })
+      const payment = reducesDebt(row.TIPO)
       const amount = Number(row.VALOR ?? 0)
-      balance += isPayment ? -amount : amount
-      const description = `${String(row.TIPO ?? '')} - ${String(row.DETALLE ?? row.COMENTARIO ?? (isPayment ? 'Abono recibido' : 'Credito')).slice(0, 40)}`
-      draw(40, y, 8, formatDate(row.FECHA))
-      draw(116, y, 8, description)
-      draw(380, y, 8, isPayment ? '-' : `$${cop.format(amount)}`)
-      draw(451, y, 8, isPayment ? `$${cop.format(amount)}` : '-')
-      draw(520, y, 8, `$${cop.format(balance)}`)
+      balance += payment ? -amount : amount
+      const product = row.CODIGO ? `${row.CODIGO} x${row.CANT ?? 1} ${row.DETALLE ?? ''}` : row.COMENTARIO ?? (payment ? 'Abono recibido' : 'Credito')
+      const refund = Number(String(row.COMENTARIO ?? '').match(/REEMBOLSO:(\d+(?:\.\d+)?)/i)?.[1] ?? 0)
+      const refundNote = refund > 0 ? ` | Reembolso $${cop.format(refund)}` : ''
+      const description = `${safeText(row.TIPO)} - ${safeText(product)}${refundNote}`.slice(0, 51)
+      draw(formatDate(row.FECHA), columns[0] + 7, rowY, 7.5)
+      draw(description, columns[1] + 7, rowY, 7.5)
+      draw(payment ? '-' : cop.format(amount), columns[2] + 7, rowY, 7.5)
+      draw(payment ? cop.format(amount) : '-', columns[3] + 7, rowY, 7.5)
+      draw(cop.format(balance), columns[4] + 7, rowY, 7.5, bold, green)
     })
-    const finalBalance = transactions.slice(0, (pageIndex + 1) * pageSize).reduce((total, row) => total + (reducesDebt(row.TIPO) ? -Number(row.VALOR ?? 0) : Number(row.VALOR ?? 0)), 0)
-    const footerY = 65
-    commands.push('0.55 w 40 82 m 555 82 l S')
-    draw(40, footerY, 10, `Saldo pendiente: $${cop.format(finalBalance)}`, true)
-    const stream = commands.join('\n')
-    objects[pageObject] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${streamObject} 0 R >>`
-    objects[streamObject] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`
+    const footerY = 54
+    page.drawLine({ start: { x: 38, y: footerY + 15 }, end: { x: 557, y: footerY + 15 }, thickness: 0.7, color: rgb(0.82, 0.87, 0.82) })
+    draw("SPORTIVO'S | Estado de cuenta confidencial del cliente", 38, footerY, 7, regular, muted)
+    draw(`Saldo al corte: $ ${cop.format(finalBalance)}`, 380, footerY, 9, bold, green)
   }
-  objects[2] = `<< /Type /Pages /Kids [${pageRefs.map((reference) => `${reference} 0 R`).join(' ')}] /Count ${pages} >>`
-  const maxObject = objects.length - 1
-  let pdf = '%PDF-1.4\n'
-  const offsets = new Array<number>(maxObject + 1).fill(0)
-  for (let index = 1; index <= maxObject; index += 1) {
-    offsets[index] = pdf.length
-    pdf += `${index} 0 obj\n${objects[index]}\nendobj\n`
-  }
-  const xrefOffset = pdf.length
-  pdf += `xref\n0 ${maxObject + 1}\n0000000000 65535 f \n`
-  for (let index = 1; index <= maxObject; index += 1) pdf += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`
-  pdf += `trailer\n<< /Size ${maxObject + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
-  return new Blob([new TextEncoder().encode(pdf)], { type: 'application/pdf' })
+
+  const bytes = await pdf.save()
+  return new Blob([new Uint8Array(bytes).buffer as ArrayBuffer], { type: 'application/pdf' })
 }
 
-export function downloadClientStatement(clientName: string, transactions: WorkbookRow[]): void {
-  const blob = makePdf(clientName, transactions)
+export async function downloadClientStatement(clientName: string, transactions: WorkbookRow[]): Promise<void> {
+  const blob = await makePdf(clientName, transactions)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -96,7 +120,7 @@ export function downloadClientStatement(clientName: string, transactions: Workbo
 }
 
 export async function shareClientStatement(clientName: string, transactions: WorkbookRow[], notify: (message: string) => void): Promise<void> {
-  const blob = makePdf(clientName, transactions)
+  const blob = await makePdf(clientName, transactions)
   const filename = `estado-cuenta-${safeText(clientName).toLowerCase().replace(/\s+/g, '-')}.pdf`
   const file = new File([blob], filename, { type: 'application/pdf' })
   if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
@@ -107,6 +131,15 @@ export async function shareClientStatement(clientName: string, transactions: Wor
       if (error instanceof DOMException && error.name === 'AbortError') return
     }
   }
-  downloadClientStatement(clientName, transactions)
+  await downloadClientStatement(clientName, transactions)
   notify('Este navegador no permite compartir archivos directamente. Descargué el PDF para que puedas adjuntarlo.')
+}
+
+function rowDateValue(value: unknown): number {
+  if (typeof value === 'number') return new Date(Date.UTC(1899, 11, 30) + value * 86400000).getTime()
+  const raw = String(value ?? '').trim()
+  const dmy = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
+  if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1])).getTime()
+  const timestamp = Date.parse(raw)
+  return Number.isNaN(timestamp) ? 0 : timestamp
 }

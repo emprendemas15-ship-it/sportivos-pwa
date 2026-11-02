@@ -95,5 +95,14 @@
 .small-action { padding: 6px 8px; border: 1px solid #dce8de; border-radius: 5px; color: #356447; background: #f7fbf7; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .small-action:hover:not(:disabled) { border-color: #9fbea6; background: #edf7ef; }
 .small-action:disabled { color: #a6afa9; background: #f4f6f4; cursor: not-allowed; }
+.danger-action { border-color: #efd1cc; color: #a8493e; background: #fff8f7; }
+.balance-empty { display: grid; gap: 8px; max-width: 980px; margin: 0 auto; padding: 32px; border: 1px dashed #bdcdbf; border-radius: 10px; color: #40564a; background: #f8fbf8; text-align: center; }
+.balance-empty strong { color: #214c35; font-size: 18px; }
+.balance-summary-modal { width: min(100%, 680px); }
+.saved-balance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.saved-balance-grid > div { display: grid; gap: 7px; padding: 13px; border: 1px solid #e1e9e2; border-radius: 8px; background: #f8fbf8; }
+.saved-balance-grid span { color: #718077; font-size: 11px; }
+.saved-balance-grid strong { color: #214c35; font-size: 16px; }
+@media (max-width: 560px) { .saved-balance-grid { grid-template-columns: 1fr; } }
 @media (max-width: 1100px) { .balance-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }.balance-actions { grid-column: 1 / -1; } }
 @media (max-width: 760px) { .excel-balance { padding: 18px 13px 14px; }.balance-sheet-top { justify-content: space-between; gap: 9px; font-size: 11px; }.balance-row { grid-template-columns: minmax(0, 1fr) 110px; padding: 7px 6px; font-size: 13px; }.balance-controls { grid-template-columns: 1fr 1fr; }.balance-actions { flex-wrap: wrap; }.client-actions { flex-direction: column; } }
