@@ -291,7 +291,7 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
 
 function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, WorkbookRow[]>; balances: MonthlyBalance[]; onNavigate: (module: ModuleKey | 'MENU') => void }) {
   const metrics = getMetrics(data)
-  return <section className="page-content">
+  return <section className="page-content home-page">
     <div className="page-heading"><div><p className="eyebrow">HOJA PRINCIPAL</p><h1>MENU</h1><p className="page-description">Vista de control del libro Sportivos: inventarios, ventas, cartera y reportes.</p></div><span className="reference-badge">Fuente: SPORTIVOS (1) (1).xlsm</span></div>
     <div className="summary-grid">
       <SummaryCard label="Productos terminados" value={number.format(metrics.products)} note="Registros en INVENTARIO_PT" tone="green" />
@@ -300,7 +300,7 @@ function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, Workbook
       <SummaryCard label="Gastos registrados" value={currency.format(metrics.expenses)} note="Suma de VALOR en GASTOS" tone="rose" />
     </div>
     <BalanceTrend balances={balances} />
-    <section className="menu-card"><div className="section-heading"><div><h2>HOJAS Y FORMULARIOS</h2><p>Acceso directo a cada modulo visible del archivo original.</p></div></div>
+    <section className="menu-card home-module-menu"><div className="section-heading"><div><h2>HOJAS Y FORMULARIOS</h2><p>Acceso directo a cada modulo visible del archivo original.</p></div></div>
       <div className="module-grid">{menuItems.filter((item) => item.key !== 'MENU').map((item) => <button key={item.key} className="module-tile" type="button" onClick={() => onNavigate(item.key)}><span className="tile-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.key === 'BALANCE' ? 'Historial mensual' : `${data[item.key as ModuleKey].length} registros`}</small></span><span className="tile-arrow">-&gt;</span></button>)}</div>
     </section>
   </section>
