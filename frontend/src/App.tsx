@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { cloneInitialData, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
+import { monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { downloadClientStatement, shareClientStatement } from './lib/client-statement'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
 
@@ -22,10 +22,10 @@ const editableModules = new Set<ModuleKey>(['INVENTARIO_PT', 'ENTRADAS', 'VENTAS
 const remoteTableByModule: Partial<Record<ModuleKey, string>> = {
   INVENTARIO_PT: 'inventario_pt', ENTRADAS: 'entradas', VENTAS: 'ventas', GASTOS: 'gastos', CREDITOS: 'creditos', CLIENTES: 'clientes', COSTOS_NO_PRODUCIDOS: 'costos_no_producidos',
 }
-type SyncState = 'local' | 'syncing' | 'synced' | 'error'
+type SyncState = 'syncing' | 'synced' | 'error'
 
 function App() {
-  const { data, setData, syncState, syncError, refreshAll } = useWorkbookSync()
+  const { data, syncState, syncError, refreshAll } = useWorkbookSync()
   const [active, setActive] = useState<ModuleKey | 'MENU'>('MENU')
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -58,13 +58,13 @@ function App() {
 
   async function saveRow(row: WorkbookRow) {
     if (active === 'MENU' || active === 'BALANCE') return
+    if (syncState !== 'synced') {
+      flashNotice('No se guardó: espera a que aparezca la conexión con la base compartida.')
+      return
+    }
     const normalized = normalizeRow(active, row, data)
     if (!supabase) {
-      const nextData = { ...data, [active]: [...data[active], normalized] }
-      setData(nextData)
-      localStorage.setItem('sportivos-workbook-v1', JSON.stringify(nextData))
-      setShowForm(false)
-      flashNotice('Registro guardado en ' + active + '.')
+      flashNotice('No se guardó: falta conexión con la base compartida. Conéctate y vuelve a intentar.')
       return
     }
     const client = supabase as any
@@ -80,7 +80,7 @@ function App() {
     flashNotice('Registro guardado en ' + active + ' y sincronizado.')
   }
 
-  const connectionLabel = syncState === 'synced' ? 'Sincronizado con Supabase' : syncState === 'syncing' ? 'Sincronizando...' : syncState === 'error' ? 'Sin conexion - datos locales' : 'Persistencia local'
+  const connectionLabel = syncState === 'synced' ? 'Sincronizado con la base compartida' : syncState === 'syncing' ? 'Conectando con la base...' : 'Sin conexión - guardado bloqueado'
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -97,7 +97,7 @@ function App() {
         </div>)}
       </nav>
       <div className="sidebar-bottom">
-        <div className="data-status"><i /> {hasSupabaseConfig ? 'Base remota conectada' : 'Datos de prueba activos'}</div>
+        <div className="data-status"><i /> {hasSupabaseConfig ? 'Base compartida Supabase' : 'Base compartida no configurada'}</div>
       </div>
     </aside>
     <main className="main-content">
@@ -107,48 +107,64 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-    {active === 'MENU' ? <Menu data={data} onNavigate={navigate} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} onNew={() => setShowForm(true)} onNotice={flashNotice} />}
+    {active === 'MENU' ? <Menu data={data} onNavigate={navigate} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onNotice={flashNotice} />}
     </main>
     {showForm && active !== 'MENU' && <RecordForm module={active} data={data} onClose={() => setShowForm(false)} onSave={saveRow} />}
   </div>
 }
 
 function useWorkbookSync() {
-  const [data, setData] = useState<Record<ModuleKey, WorkbookRow[]>>(() => loadData())
-  const [syncState, setSyncState] = useState<SyncState>(hasSupabaseConfig ? 'syncing' : 'local')
+  const [data, setData] = useState<Record<ModuleKey, WorkbookRow[]>>(emptyWorkbookData)
+  const [syncState, setSyncState] = useState<SyncState>('syncing')
   const [syncError, setSyncError] = useState('')
+  const refreshInFlight = useRef(false)
+  const hasLoadedRemote = useRef(false)
 
   const refreshAll = useCallback(async (showNotice = false) => {
     if (!supabase) {
-      setSyncState('local')
+      setSyncState('error')
+      setSyncError('Esta aplicación no está conectada a la base compartida. No guardes registros desde esta versión.')
       return
     }
-    setSyncState('syncing')
+    if (refreshInFlight.current) return
+    refreshInFlight.current = true
+    if (!hasLoadedRemote.current) setSyncState('syncing')
     try {
       const remoteData = await readRemoteData()
+      hasLoadedRemote.current = true
       setData(remoteData)
-      localStorage.setItem('sportivos-workbook-v1', JSON.stringify(remoteData))
       setSyncError('')
       setSyncState('synced')
       if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Datos actualizados desde Supabase.' }))
     } catch (error) {
       setSyncState('error')
-      setSyncError(error instanceof Error ? error.message : 'No fue posible conectar con Supabase.')
-      if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo actualizar. Se conservan los datos locales.' }))
+      setSyncError('No hay conexión con la base compartida. Los cambios no se guardan; vuelve a conectar y pulsa Actualizar. ' + (error instanceof Error ? error.message : ''))
+      if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo actualizar desde la base compartida.' }))
+    } finally {
+      refreshInFlight.current = false
     }
   }, [])
 
   useEffect(() => {
     void refreshAll()
     const timer = window.setInterval(() => void refreshAll(), 10000)
-    return () => window.clearInterval(timer)
+    const refreshWhenActive = () => {
+      if (document.visibilityState === 'visible') void refreshAll()
+    }
+    window.addEventListener('focus', refreshWhenActive)
+    document.addEventListener('visibilitychange', refreshWhenActive)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refreshWhenActive)
+      document.removeEventListener('visibilitychange', refreshWhenActive)
+    }
   }, [refreshAll])
 
-  return { data, setData, syncState, syncError, refreshAll }
+  return { data, syncState, syncError, refreshAll }
 }
 
 async function readRemoteData(): Promise<Record<ModuleKey, WorkbookRow[]>> {
-  if (!supabase) return loadData()
+  if (!supabase) throw new Error('Falta la configuración de Supabase.')
   const client = supabase
   const entries = await Promise.all((Object.keys(remoteTableByModule) as ModuleKey[]).map(async (module) => {
     const table = remoteTableByModule[module]
@@ -157,7 +173,7 @@ async function readRemoteData(): Promise<Record<ModuleKey, WorkbookRow[]>> {
     if (result.error) throw new Error(module + ': ' + result.error.message)
     return [module, (result.data ?? []).map((row) => fromRemoteRow(module, row as WorkbookRow))] as const
   }))
-  return { ...cloneInitialData(), ...Object.fromEntries(entries) } as Record<ModuleKey, WorkbookRow[]>
+  return { ...emptyWorkbookData(), ...Object.fromEntries(entries) } as Record<ModuleKey, WorkbookRow[]>
 }
 function fromRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   const next = { ...row }
@@ -210,10 +226,8 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, onNew, on
 }
 
 type MonthlyBalance = { month: number; year: number; openingFund: number; cashSales: number; transferSales: number; totalCollections: number; availableCash: number; creditsGranted: number; payments: number; returns: number; refunds: number; receivables: number; productionCosts: number; nonProducedCosts: number; fixedCosts: number; operatingExpenses: number; totalExpenses: number; remainingCash: number; withdrawalRate: number; suggestedWithdrawal: number; nextFund: number }
-const BALANCE_STORAGE_KEY = 'sportivos-monthly-balances-v1'
 const monthLabels = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 const septemberBalance: MonthlyBalance = { month: 9, year: 2026, openingFund: 1000000, cashSales: 543000, transferSales: 1989000, totalCollections: 2532000, availableCash: 3532000, creditsGranted: 1198000, payments: 2532000, returns: 0, refunds: 0, receivables: 5181000, productionCosts: 0, nonProducedCosts: 985000, fixedCosts: 9500, operatingExpenses: 108000, totalExpenses: 1093000, remainingCash: 2439000, withdrawalRate: 0.2, suggestedWithdrawal: 506400, nextFund: 1932600 }
-function readBalanceHistory(): MonthlyBalance[] { try { const raw = localStorage.getItem(BALANCE_STORAGE_KEY); if (!raw) return []; const value = JSON.parse(raw); if (Array.isArray(value)) return value.map((item) => ({ refunds: 0, ...item })) as MonthlyBalance[] } catch { localStorage.removeItem(BALANCE_STORAGE_KEY) } return [] }
 function parseBalanceSnapshot(value: unknown): MonthlyBalance | null {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value
@@ -306,7 +320,7 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
   const [year, setYear] = useState(2026)
   const [openingFund, setOpeningFund] = useState(() => septemberBalance.nextFund)
   const [withdrawalPercent, setWithdrawalPercent] = useState(20)
-  const [history, setHistory] = useState<MonthlyBalance[]>(readBalanceHistory)
+  const [history, setHistory] = useState<MonthlyBalance[]>([])
   const [generated, setGenerated] = useState<MonthlyBalance | null>(null)
   const [viewing, setViewing] = useState<MonthlyBalance | null>(null)
   const historySyncStarted = useRef(false)
@@ -327,15 +341,9 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
       }
       const uniqueRemoteHistory = [...historyByPeriod.values()]
       for (const item of uniqueRemoteHistory) if (duplicatePeriods.has(`${item.year}-${item.month}`)) await persistRemoteBalance(item)
-      const localHistory = readBalanceHistory()
-      const merged = [...localHistory.filter((local) => !uniqueRemoteHistory.some((remote) => remote.month === local.month && remote.year === local.year)), ...uniqueRemoteHistory]
-      for (const item of merged) {
-        if (!uniqueRemoteHistory.some((remote) => remote.month === item.month && remote.year === item.year)) await persistRemoteBalance(item)
-      }
-      merged.sort((a, b) => a.year - b.year || a.month - b.month)
+      const sortedHistory = uniqueRemoteHistory.sort((a, b) => a.year - b.year || a.month - b.month)
       if (!cancelled) {
-        setHistory(merged)
-        localStorage.setItem(BALANCE_STORAGE_KEY, JSON.stringify(merged))
+        setHistory(sortedHistory)
       }
     })().catch((error) => {
       if (!cancelled) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo sincronizar el historial de balances: ' + (error instanceof Error ? error.message : 'error de conexión') }))
@@ -353,36 +361,39 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
   }
   function generate() { setGenerated(calculateBalance(data, month, year, openingFund, withdrawalPercent / 100)) }
   async function save() {
+    if (!supabase) {
+      window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se guardó: falta conexión con la base compartida.' }))
+      return
+    }
     const current = calculateBalance(data, month, year, openingFund, withdrawalPercent / 100)
     const next = [...history.filter((item) => item.month !== month || item.year !== year), current].sort((a, b) => a.year - b.year || a.month - b.month)
-    setHistory(next); localStorage.setItem(BALANCE_STORAGE_KEY, JSON.stringify(next)); setGenerated(current)
     try {
       await persistRemoteBalance(current)
-      if (supabase) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Balance guardado y sincronizado para todos tus dispositivos.' }))
+      setHistory(next); setGenerated(current)
+      window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Balance guardado en la base compartida para todos tus dispositivos.' }))
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo sincronizar el balance. Quedó guardado en este dispositivo: ' + (error instanceof Error ? error.message : 'error de conexión') }))
+      window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo guardar en la base compartida: ' + (error instanceof Error ? error.message : 'error de conexión') }))
     }
   }
   function viewSaved(item: MonthlyBalance) { setViewing(item) }
   async function deleteSaved(item: MonthlyBalance) {
     if (!window.confirm(`¿Eliminar el balance de ${monthLabels[item.month - 1]} ${item.year}? Esta acción no se puede deshacer.`)) return
     try {
-      if (supabase) {
-        const payload = toRemoteBalance(item)
-        const yearColumn = Object.keys(payload).find((key) => key.toLowerCase().includes('consultar') && key !== 'Mes a consultar (1-12)')
-        if (!yearColumn) throw new Error('No se encontró la columna del año en el balance.')
-        const monthColumn = Object.keys(payload).find((key) => key.startsWith('Mes a consultar'))
-        if (!monthColumn) throw new Error('No se encontró la columna del mes en el balance.')
-        const result = await supabase.from('balance').select('*')
-        if (result.error) throw new Error(result.error.message)
-        const matches = (result.data ?? []).filter((row) => Number(row[monthColumn]) === item.month && Number(row[yearColumn]) === item.year)
-        for (const match of matches) {
-          const remove = await supabase.from('balance').delete().eq('id', match.id)
-          if (remove.error) throw new Error(remove.error.message)
-        }
+      if (!supabase) throw new Error('No hay conexión con la base compartida.')
+      const payload = toRemoteBalance(item)
+      const yearColumn = Object.keys(payload).find((key) => key.toLowerCase().includes('consultar') && key !== 'Mes a consultar (1-12)')
+      if (!yearColumn) throw new Error('No se encontró la columna del año en el balance.')
+      const monthColumn = Object.keys(payload).find((key) => key.startsWith('Mes a consultar'))
+      if (!monthColumn) throw new Error('No se encontró la columna del mes en el balance.')
+      const result = await supabase.from('balance').select('*')
+      if (result.error) throw new Error(result.error.message)
+      const matches = (result.data ?? []).filter((row) => Number(row[monthColumn]) === item.month && Number(row[yearColumn]) === item.year)
+      for (const match of matches) {
+        const remove = await supabase.from('balance').delete().eq('id', match.id)
+        if (remove.error) throw new Error(remove.error.message)
       }
       const next = history.filter((saved) => saved.month !== item.month || saved.year !== item.year)
-      setHistory(next); localStorage.setItem(BALANCE_STORAGE_KEY, JSON.stringify(next))
+      setHistory(next)
       if (generated?.month === item.month && generated.year === item.year) setGenerated(null)
       window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Balance eliminado.' }))
     } catch (error) { window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo eliminar el balance: ' + (error instanceof Error ? error.message : 'error') })) }
@@ -703,21 +714,9 @@ function getMetrics(data: Record<ModuleKey, WorkbookRow[]>) {
   const creditsPaid = data.CREDITOS.filter((row) => row.TIPO === 'Abono').reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   return { products: data.INVENTARIO_PT.length, stock: getRows('INVENTARIO_PT', data).reduce((total, row) => total + Number(row.STOCK ?? 0), 0), sales, cashSales, transferSales, expenses, materialExpenses, operatingExpenses: expenses - materialExpenses, creditsPaid }
 }
-function loadData(force = false): Record<ModuleKey, WorkbookRow[]> {
-  if (!force) {
-    const saved = localStorage.getItem('sportivos-workbook-v1')
-    if (saved) {
-      try {
-        const stored = JSON.parse(saved) as Partial<Record<ModuleKey, WorkbookRow[]>>
-        const activeData = Object.fromEntries((Object.keys(moduleColumns) as ModuleKey[]).map((module) => [module, Array.isArray(stored[module]) ? stored[module] : []])) as Record<ModuleKey, WorkbookRow[]>
-        localStorage.setItem('sportivos-workbook-v1', JSON.stringify(activeData))
-        return activeData
-      } catch { localStorage.removeItem('sportivos-workbook-v1') }
-    }
-  }
-  const next = cloneInitialData()
-  localStorage.setItem('sportivos-workbook-v1', JSON.stringify(next))
-  return next
+function emptyWorkbookData(): Record<ModuleKey, WorkbookRow[]> {
+  const entries: Array<[ModuleKey, WorkbookRow[]]> = (Object.keys(moduleColumns) as ModuleKey[]).map((module) => [module, []])
+  return Object.fromEntries(entries) as Record<ModuleKey, WorkbookRow[]>
 }
 
 export default App
