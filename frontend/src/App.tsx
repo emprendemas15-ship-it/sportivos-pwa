@@ -132,6 +132,7 @@ function useWorkbookSync() {
   const [syncError, setSyncError] = useState('')
   const [writeBlocked, setWriteBlocked] = useState(false)
   const refreshInFlight = useRef(false)
+  const manualRefreshQueued = useRef(false)
   const hasLoadedRemote = useRef(false)
   const writeBlockedRef = useRef(false)
 
@@ -150,9 +151,13 @@ function useWorkbookSync() {
     if (!supabase) {
       setSyncState('error')
       setSyncError('Esta aplicación no está conectada a la base compartida. No guardes registros desde esta versión.')
+      if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo actualizar: falta configurar la base compartida.' }))
       return
     }
-    if (refreshInFlight.current) return
+    if (refreshInFlight.current) {
+      if (showNotice) manualRefreshQueued.current = true
+      return
+    }
     refreshInFlight.current = true
     if (!hasLoadedRemote.current || showNotice) setSyncState('syncing')
     try {
@@ -162,11 +167,13 @@ function useWorkbookSync() {
       setSyncError(writeBlockedRef.current ? 'La base está en línea, pero un intento de guardado fue rechazado. Revisa los permisos o intenta guardar de nuevo.' : '')
       setSyncState('synced')
       window.dispatchEvent(new CustomEvent('sportivos:balance-updated'))
-      if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Datos recargados y existencias recalculadas con los códigos normalizados. Solo se recuperan registros guardados en la base.' }))
+      if (showNotice || manualRefreshQueued.current) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Datos recargados y existencias recalculadas con los códigos normalizados. Solo se recuperan registros guardados en la base.' }))
+      manualRefreshQueued.current = false
     } catch (error) {
       setSyncState('error')
       setSyncError('No hay conexión con la base compartida. Los cambios no se guardan; vuelve a conectar y pulsa Actualizar. ' + (error instanceof Error ? error.message : ''))
-      if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo actualizar desde la base compartida.' }))
+      if (showNotice || manualRefreshQueued.current) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo actualizar desde la base compartida.' }))
+      manualRefreshQueued.current = false
     } finally {
       refreshInFlight.current = false
     }
