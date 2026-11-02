@@ -34,7 +34,11 @@ function App() {
   const [showForm, setShowForm] = useState(false)
   const [notice, setNotice] = useState('')
 
-  const rows = useMemo(() => getRows(active, data), [active, data])
+  const rows = useMemo(() => {
+    const currentRows = getRows(active, data)
+    if (active === 'MENU' || active === 'BALANCE' || active === 'CREDITOS') return currentRows
+    return [...currentRows].sort((a, b) => rowCreatedAtValue(b) - rowCreatedAtValue(a))
+  }, [active, data])
   const filteredRows = useMemo(() => {
     if (active === 'CREDITOS') return filterCreditRows(rows, creditFilters)
     const needle = search.trim().toLowerCase()
