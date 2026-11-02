@@ -46,7 +46,8 @@ export const moduleColumns: Record<ModuleKey, Column[]> = {
   ENTRADAS: [
     { key: 'FECHA', label: 'FECHA', type: 'date', required: true }, { key: 'CODIGO', label: 'CODIGO', required: true },
     { key: 'DETALLE', label: 'DETALLE', required: true }, { key: 'CANTIDAD', label: 'CANTIDAD', type: 'number', required: true },
-    { key: 'COMENTARIOS', label: 'COMENTARIOS' }, { key: 'PRECIO', label: 'PRECIO', type: 'number' }, { key: 'Columna1', label: 'Columna1', type: 'number' },
+    { key: 'COMENTARIOS', label: 'COMENTARIOS' }, { key: 'PRECIO', label: 'PRECIO', type: 'number' },
+    { key: 'VALOR_PRODUCTO', label: 'VALOR DEL PRODUCTO', type: 'number' },
   ],
   VENTAS: [
     { key: 'FECHA', label: 'FECHA', type: 'date', required: true }, { key: 'CODIGO', label: 'CODIGO', required: true },

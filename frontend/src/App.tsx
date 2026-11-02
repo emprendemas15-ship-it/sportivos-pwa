@@ -271,7 +271,7 @@ async function readRemoteData(): Promise<Record<ModuleKey, WorkbookRow[]>> {
 function fromRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   const next = { ...row }
   if (module === 'INVENTARIO_PT') next.CONSIGNACION = row.CONSIGNACION ?? row['CONSIGNACIÓN'] ?? null
-  if (module === 'ENTRADAS') next.Columna1 = Number(row.CANTIDAD ?? 0) * Number(row.PRECIO ?? 0)
+  if (module === 'ENTRADAS') next.VALOR_PRODUCTO = calculateLineTotal(row.CANTIDAD, row.PRECIO)
   if (module === 'GASTOS') {
     next.DETALLE = String(row.DETALLE ?? '').trim() || String(row.COMENTARIOS ?? '').trim() || String(row.CODIGO_MP ?? '').trim() || null
     next.MES = 'Otro'
@@ -287,7 +287,11 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
     next['CONSIGNACIÓN'] = next.CONSIGNACION ?? next['CONSIGNACIÓN'] ?? 0
     delete next.CONSIGNACION
   }
-  if (module === 'ENTRADAS' || module === 'CLIENTES' || module === 'COSTOS_NO_PRODUCIDOS' || module === 'CREDITOS') delete next.Columna1
+  if (module === 'ENTRADAS') {
+    delete next.Columna1
+    delete next.VALOR_PRODUCTO
+  }
+  if (module === 'CLIENTES' || module === 'COSTOS_NO_PRODUCIDOS' || module === 'CREDITOS') delete next.Columna1
   if (module === 'GASTOS') {
     delete next.MES
     delete next.COMENTARIOS
@@ -660,7 +664,7 @@ function BalanceSection({ title, rows }: { title: string; rows: Array<[string, n
 
 function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; onClose: () => void; onSave: (row: WorkbookRow) => Promise<void> | void }) {
   const isCreditForm = module === 'CREDITOS'
-  const columns = moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS'))
+  const columns = moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'VALOR_PRODUCTO', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS'))
   const clientNames = useMemo(() => Array.from(new Set([...data.CLIENTES, ...data.CREDITOS].map((row) => String(row.NOMBRE ?? '').trim()).filter(Boolean))), [data.CLIENTES, data.CREDITOS])
   const creditKeys = ['TIPO', 'FECHA', 'NOMBRE', 'CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO', 'VALOR', 'COMENTARIO', 'MEDIO PAGO']
   const [values, setValues] = useState<WorkbookRow>(() => Object.fromEntries(columns.map((column) => [column.key, column.type === 'date' ? new Date().toISOString().slice(0, 10) : column.key === 'TIPO' ? CREDIT_TYPE : column.key === 'MES' && module === 'GASTOS' ? 'Otro' : column.key === 'COSTO FIJO' ? 500 : column.key === 'NOMBRE' && clientNames[0] ? clientNames[0] : column.type === 'number' ? '' : ''])) as WorkbookRow)
@@ -979,7 +983,10 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     next.DEUDA = getClientDebt(data.CREDITOS, clientName) + (isAbonoType(type) || isReturnType(type) ? -Number(next.VALOR ?? 0) : Number(next.VALOR ?? 0))
     next.MES = monthName(String(next.FECHA ?? ''))
   }
-  if (module === 'ENTRADAS') next.Columna1 = calculateLineTotal(next.CANTIDAD, next.PRECIO)
+  if (module === 'ENTRADAS') {
+    next.VALOR_PRODUCTO = calculateLineTotal(next.CANTIDAD, next.PRECIO)
+    delete next.Columna1
+  }
   if (module === 'COSTOS_NO_PRODUCIDOS') {
     if (next['COSTO FIJO'] === null || next['COSTO FIJO'] === undefined || next['COSTO FIJO'] === '') next['COSTO FIJO'] = 500
     next['COSTO TOTAL'] = Number(next.COSTO ?? 0) + Number(next['COSTO FIJO'] ?? 0)
@@ -994,7 +1001,7 @@ function formatCell(value: CellValue, key: string): string {
   const cleanValue = cleanExcelError(value)
   if (cleanValue === null || cleanValue === '') return '-'
   const normalizedKey = key.toLocaleUpperCase()
-  if (normalizedKey.includes('PRECIO') || normalizedKey.includes('COSTO') || ['VALOR', 'TOTAL', 'DEUDA', 'GANANCIA', 'DESCUENTO', 'COLUMNA1'].includes(normalizedKey)) return currency.format(Number(cleanValue))
+  if (normalizedKey.includes('PRECIO') || normalizedKey.includes('COSTO') || normalizedKey.includes('VALOR') || ['TOTAL', 'DEUDA', 'GANANCIA', 'DESCUENTO', 'COLUMNA1'].includes(normalizedKey)) return currency.format(Number(cleanValue))
   if (key === 'FECHA' || key === 'FECHA DE PAGO') return String(cleanValue).slice(0, 10)
   return typeof cleanValue === 'number' ? number.format(cleanValue) : String(cleanValue)
 }
