@@ -92,6 +92,7 @@ for (const sheetName of workbook.SheetNames) {
     const detalle = cleanText(detalleRaw)
     const rawAbona = values[columnMap.abona ?? 9] ?? values[9] ?? null
     const rawTotal = values[columnMap.total ?? 8] ?? values[8] ?? null
+    const rawDebe = values[columnMap.debe ?? 10] ?? values[10] ?? null
     const hasAbonoValue = number(rawAbona) > 0
     const isAbono = /abono/i.test(detalle) || /abono/i.test(cleanText(rawAbona)) || (hasAbonoValue && number(rawTotal) === 0 && number(values[columnMap.valor ?? 6] ?? values[6]) === 0 && number(values[columnMap.cantidad ?? 5] ?? values[5]) === 0)
 
@@ -105,7 +106,7 @@ for (const sheetName of workbook.SheetNames) {
     const descuento = number(values[columnMap.descuento ?? 7])
     const total = number(rawTotal ?? (isAbono ? 0 : null))
     const abona = number(rawAbona)
-    const debe = number(values[columnMap.debe ?? 10])
+    const debe = number(rawDebe)
     const negocio = cleanText(values[columnMap.negocio ?? 11]) || null
 
     const transaction = {
@@ -118,6 +119,7 @@ for (const sheetName of workbook.SheetNames) {
       total: total || 0,
       abona: abona || 0,
       debe: debe || 0,
+      tieneDebe: rawDebe !== null && cleanText(rawDebe) !== '',
       negocio,
       tipo: isAbono ? 'ABONO' : 'COMPRA',
     }
@@ -135,7 +137,8 @@ for (const sheetName of workbook.SheetNames) {
 
   const totalCompras = transactions.filter((row) => row.tipo === 'COMPRA').reduce((sum, row) => sum + row.total, 0)
   const totalAbonos = transactions.filter((row) => row.tipo === 'ABONO').reduce((sum, row) => sum + row.abona, 0)
-  const saldoPendiente = totalCompras - totalAbonos
+  const recordedBalance = transactions.slice().reverse().find((row) => row.tieneDebe)?.debe
+  const saldoPendiente = recordedBalance ?? totalCompras - totalAbonos
 
   people.push({
     name,

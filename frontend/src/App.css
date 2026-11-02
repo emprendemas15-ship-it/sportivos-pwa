@@ -160,6 +160,25 @@
   .connection { gap: 5px; font-size: 9px; }
   .refresh-button { flex: 0 0 auto; padding: 6px 8px; white-space: nowrap; }
 }
+ .validation-credit-notice, .validation-credit-loading { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #cfe2d3; border-radius: 7px; color: #2d704a; background: #f0f9f1; font-size: 11px; }
+.validation-credit-loading { border-color: #e6ece7; color: #748278; background: #fff; }
+.validation-credit-person-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.validation-credit-modal { width: min(100%, 680px); }
+.validation-credit-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.validation-credit-form-grid label { display: grid; min-width: 0; gap: 6px; color: #58675e; font-size: 11px; font-weight: 700; }
+.validation-credit-form-grid input, .validation-credit-form-grid select { width: 100%; min-width: 0; height: 40px; padding: 0 10px; border: 1px solid #dfe7df; border-radius: 6px; color: #34463a; background: #fff; font: inherit; font-size: 12px; }
+.validation-credit-type { display: flex; gap: 20px; margin: 17px 0; padding: 12px; border: 1px solid #e4ebe4; border-radius: 7px; }
+.validation-credit-type legend { padding: 0 5px; color: #58675e; font-size: 11px; font-weight: 700; }
+.validation-credit-type label { display: inline-flex; align-items: center; gap: 7px; color: #3e5546; font-size: 12px; }
+.validation-credit-type input { accent-color: #277352; }
+.validation-credit-balance-preview { display: grid; gap: 5px; margin-top: 15px; padding: 13px; border: 1px solid #dce9df; border-radius: 8px; color: #506557; background: #f7fbf7; font-size: 11px; }
+.validation-credit-balance-preview strong { color: #214c35; font-size: 19px; }
+.validation-credit-balance-preview small { color: #78877d; font-size: 10px; }
+.validation-credit-modal .modal-actions .primary-button:disabled { opacity: .6; cursor: not-allowed; }
+@media (max-width: 560px) {
+  .validation-credit-form-grid { grid-template-columns: 1fr; }
+  .validation-credit-person-heading { align-items: flex-start; flex-direction: column; }
+}
 @media (max-width: 360px) {
   .connection { font-size: 8px; }
   .topbar-right { gap: 6px; }
