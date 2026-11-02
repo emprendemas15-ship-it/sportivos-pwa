@@ -26,6 +26,7 @@ type SyncState = 'syncing' | 'synced' | 'error'
 
 function App() {
   const { data, syncState, syncError, refreshAll } = useWorkbookSync()
+  const balanceHistory = useSavedBalances()
   const [active, setActive] = useState<ModuleKey | 'MENU'>('MENU')
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
@@ -107,7 +108,7 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-    {active === 'MENU' ? <Menu data={data} onNavigate={navigate} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onNotice={flashNotice} />}
+    {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onNotice={flashNotice} />}
     </main>
     {showForm && active !== 'MENU' && <RecordForm module={active} data={data} onClose={() => setShowForm(false)} onSave={saveRow} />}
   </div>
@@ -163,6 +164,46 @@ function useWorkbookSync() {
   return { data, syncState, syncError, refreshAll }
 }
 
+function useSavedBalances(): MonthlyBalance[] {
+  const [balances, setBalances] = useState<MonthlyBalance[]>([])
+  useEffect(() => {
+    if (!supabase) return
+    const client = supabase
+    let cancelled = false
+    let loading = false
+    const refresh = async () => {
+      if (loading) return
+      loading = true
+      try {
+        const result = await client.from('balance').select('*')
+        if (result.error) throw new Error(result.error.message)
+        const byPeriod = new Map<string, MonthlyBalance>()
+        for (const row of result.data ?? []) {
+          const snapshot = parseBalanceSnapshot(row['Estado del período'])
+          if (snapshot) byPeriod.set(`${snapshot.year}-${snapshot.month}`, snapshot)
+        }
+        if (!cancelled) setBalances([...byPeriod.values()].sort((a, b) => a.year - b.year || a.month - b.month))
+      } catch (error) {
+        console.error('No se pudieron cargar los balances del dashboard.', error)
+      } finally { loading = false }
+    }
+    const refreshWhenActive = () => { if (document.visibilityState === 'visible') void refresh() }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 10000)
+    window.addEventListener('sportivos:balance-updated', refreshWhenActive)
+    window.addEventListener('focus', refreshWhenActive)
+    document.addEventListener('visibilitychange', refreshWhenActive)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      window.removeEventListener('sportivos:balance-updated', refreshWhenActive)
+      window.removeEventListener('focus', refreshWhenActive)
+      document.removeEventListener('visibilitychange', refreshWhenActive)
+    }
+  }, [])
+  return balances
+}
+
 async function readRemoteData(): Promise<Record<ModuleKey, WorkbookRow[]>> {
   if (!supabase) throw new Error('Falta la configuración de Supabase.')
   const client = supabase
@@ -196,20 +237,81 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   return next
 }
 
-function Menu({ data, onNavigate }: { data: Record<ModuleKey, WorkbookRow[]>; onNavigate: (module: ModuleKey | 'MENU') => void }) {
+function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, WorkbookRow[]>; balances: MonthlyBalance[]; onNavigate: (module: ModuleKey | 'MENU') => void }) {
   const metrics = getMetrics(data)
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">HOJA PRINCIPAL</p><h1>MENU</h1><p className="page-description">Vista de control del libro Sportivos: inventarios, ventas, cartera y reportes.</p></div><span className="reference-badge">Fuente: SPORTIVOS (1) (1).xlsm</span></div>
     <div className="summary-grid">
       <SummaryCard label="Productos terminados" value={number.format(metrics.products)} note="Registros en INVENTARIO_PT" tone="green" />
       <SummaryCard label="Stock disponible" value={number.format(metrics.stock)} note="ENTRADAS menos SALIDAS" tone="blue" />
-      <SummaryCard label="Ventas del periodo" value={currency.format(metrics.sales)} note="Suma de TOTAL en VENTAS" tone="amber" />
+      <SummaryCard label="Valor del stock" value={currency.format(metrics.stockValue)} note="Existencias actuales × costo unitario" tone="amber" />
       <SummaryCard label="Gastos registrados" value={currency.format(metrics.expenses)} note="Suma de VALOR en GASTOS" tone="rose" />
     </div>
+    <BalanceTrend balances={balances} />
     <section className="menu-card"><div className="section-heading"><div><h2>HOJAS Y FORMULARIOS</h2><p>Acceso directo a cada modulo visible del archivo original.</p></div></div>
       <div className="module-grid">{menuItems.filter((item) => item.key !== 'MENU').map((item) => <button key={item.key} className="module-tile" type="button" onClick={() => onNavigate(item.key)}><span className="tile-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.key === 'BALANCE' ? 'Historial mensual' : `${data[item.key as ModuleKey].length} registros`}</small></span><span className="tile-arrow">-&gt;</span></button>)}</div>
     </section>
       <section className="logic-card"><div><p className="eyebrow">RELACIONES DEL LIBRO</p><h2>Relaciones de las hojas activas</h2><p>INVENTARIO_PT toma entradas y ventas. BALANCE guarda un resumen por cada periodo, incluidos septiembre y los meses siguientes.</p></div><div className="flow-line"><span>HOJAS ACTIVAS</span><b>-&gt;</b><span>REGISTROS</span><b>-&gt;</b><span>BALANCE</span></div></section>
+  </section>
+}
+
+function BalanceTrend({ balances }: { balances: MonthlyBalance[] }) {
+  const latest = balances.slice(-3)
+  const series = [
+    { key: 'recaudo', label: 'Dinero recaudado', color: '#347653', value: (item: MonthlyBalance) => item.totalCollections },
+    { key: 'gastos', label: 'Gastos', color: '#d17b57', value: (item: MonthlyBalance) => item.totalExpenses },
+    { key: 'utilidad', label: 'Utilidad neta', color: '#477a9f', value: (item: MonthlyBalance) => item.totalCollections - item.totalExpenses },
+    { key: 'retiro', label: 'Retiro sugerido', color: '#9a74b5', value: (item: MonthlyBalance) => item.suggestedWithdrawal },
+  ]
+  const values = latest.flatMap((item) => series.map((metric) => metric.value(item)))
+  const maxMagnitude = Math.max(100000, ...values.map(Math.abs))
+  const step = Math.ceil(maxMagnitude / 4 / 100000) * 100000
+  const chartMin = Math.floor(Math.min(0, ...values) / step) * step
+  const chartMax = Math.ceil(Math.max(0, ...values) / step) * step || step
+  const plotTop = 22
+  const plotBottom = 210
+  const plotHeight = plotBottom - plotTop
+  const chartRange = chartMax - chartMin || 1
+  const yForValue = (value: number) => plotBottom - (value - chartMin) / chartRange * plotHeight
+  const zeroY = yForValue(0)
+  const chartWidth = 780
+  const left = 82
+  const right = 18
+  const groupWidth = (chartWidth - left - right) / Math.max(latest.length, 1)
+  const barWidth = Math.min(25, groupWidth / 7)
+  const barGap = 5
+  const barsWidth = series.length * barWidth + (series.length - 1) * barGap
+  const axisLabel = (value: number) => value === 0 ? '$0' : `$${number.format(value / 1000000)} M`
+  return <section className="balance-trend" aria-label="Comparación de balances mensuales">
+    <div className="section-heading"><div><h2>Balances de los últimos meses</h2><p>Comparación de los últimos 3 balances guardados</p></div></div>
+    {latest.length === 0 ? <div className="balance-trend-empty">Cuando guardes un balance mensual, aquí verás la comparación del recaudo, los gastos, la utilidad neta y el retiro sugerido.</div> : <>
+      <div className="balance-chart-wrap"><svg className="balance-chart" viewBox={`0 0 ${chartWidth} 254`} role="img" aria-label="Gráfica de recaudo, gastos, utilidad neta y retiro sugerido por mes">
+        {[0, 1, 2, 3, 4].map((step) => {
+          const value = chartMin + chartRange * step / 4
+          const y = yForValue(value)
+          return <g key={step}><line x1={left} x2={chartWidth - right} y1={y} y2={y} className="balance-chart-gridline" /><text x={left - 9} y={y + 4} textAnchor="end" className="balance-chart-axis">{axisLabel(value)}</text></g>
+        })}
+        <line x1={left} x2={chartWidth - right} y1={zeroY} y2={zeroY} className="balance-chart-baseline" />
+        {latest.map((item, monthIndex) => {
+          const center = left + groupWidth * (monthIndex + 0.5)
+          const label = `${monthLabels[item.month - 1]} ${item.year}`
+          return <g key={`${item.year}-${item.month}`}>
+            {series.map((metric, seriesIndex) => {
+              const value = metric.value(item)
+              const valueY = yForValue(value)
+              const y = Math.min(zeroY, valueY)
+              const height = Math.abs(zeroY - valueY)
+              const x = center - barsWidth / 2 + seriesIndex * (barWidth + barGap)
+              return <g key={metric.key}><rect x={x} y={y} width={barWidth} height={height} rx="3" fill={metric.color}><title>{`${metric.label} · ${label}: ${currency.format(value)}`}</title></rect></g>
+            })}
+            <text x={center} y="236" textAnchor="middle" className="balance-chart-month">{monthLabels[item.month - 1]}</text>
+            <text x={center} y="250" textAnchor="middle" className="balance-chart-year">{item.year}</text>
+          </g>
+        })}
+      </svg></div>
+      <div className="balance-chart-legend">{series.map((metric) => <span key={metric.key}><i style={{ backgroundColor: metric.color }} />{metric.label}</span>)}</div>
+      <div className="balance-trend-table-wrap"><table className="balance-trend-table"><thead><tr><th>Indicador</th>{latest.map((item) => <th key={`${item.year}-${item.month}`}>{monthLabels[item.month - 1]} {item.year}</th>)}</tr></thead><tbody>{series.map((metric) => <tr key={metric.key}><th scope="row"><i style={{ backgroundColor: metric.color }} />{metric.label}</th>{latest.map((item) => <td key={`${metric.key}-${item.year}-${item.month}`}>{currency.format(metric.value(item))}</td>)}</tr>)}</tbody></table></div>
+    </>}
   </section>
 }
 function SummaryCard({ label, value, note, tone }: { label: string; value: string; note: string; tone: string }) {
@@ -370,6 +472,7 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
     try {
       await persistRemoteBalance(current)
       setHistory(next); setGenerated(current)
+      window.dispatchEvent(new CustomEvent('sportivos:balance-updated'))
       window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Balance guardado en la base compartida para todos tus dispositivos.' }))
     } catch (error) {
       window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo guardar en la base compartida: ' + (error instanceof Error ? error.message : 'error de conexión') }))
@@ -395,6 +498,7 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
       const next = history.filter((saved) => saved.month !== item.month || saved.year !== item.year)
       setHistory(next)
       if (generated?.month === item.month && generated.year === item.year) setGenerated(null)
+      window.dispatchEvent(new CustomEvent('sportivos:balance-updated'))
       window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Balance eliminado.' }))
     } catch (error) { window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo eliminar el balance: ' + (error instanceof Error ? error.message : 'error') })) }
   }
@@ -712,7 +816,10 @@ function getMetrics(data: Record<ModuleKey, WorkbookRow[]>) {
   const expenses = data.GASTOS.reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const materialExpenses = data.GASTOS.filter((row) => row.CODIGO_MP).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const creditsPaid = data.CREDITOS.filter((row) => row.TIPO === 'Abono').reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
-  return { products: data.INVENTARIO_PT.length, stock: getRows('INVENTARIO_PT', data).reduce((total, row) => total + Number(row.STOCK ?? 0), 0), sales, cashSales, transferSales, expenses, materialExpenses, operatingExpenses: expenses - materialExpenses, creditsPaid }
+  const inventory = getRows('INVENTARIO_PT', data)
+  const stock = inventory.reduce((total, row) => total + Number(row.STOCK ?? 0), 0)
+  const stockValue = inventory.reduce((total, row) => total + Math.max(0, Number(row.STOCK ?? 0)) * Number(row.COSTO ?? 0), 0)
+  return { products: data.INVENTARIO_PT.length, stock, stockValue, sales, cashSales, transferSales, expenses, materialExpenses, operatingExpenses: expenses - materialExpenses, creditsPaid }
 }
 function emptyWorkbookData(): Record<ModuleKey, WorkbookRow[]> {
   const entries: Array<[ModuleKey, WorkbookRow[]]> = (Object.keys(moduleColumns) as ModuleKey[]).map((module) => [module, []])

@@ -68,6 +68,26 @@
 .debt-preview strong { color: #214c35; font-size: 16px; }
 .debt-preview .debt-negative { color: #b34a41; }
 @media (max-width: 560px) { .debt-preview { grid-template-columns: 1fr; } }
+
+.balance-trend { overflow: hidden; margin: 0 0 19px; border: 1px solid #e7ece7; border-radius: 10px; background: #fff; box-shadow: 0 2px 6px #173a250d; }
+.balance-trend .section-heading { padding-bottom: 8px; }
+.balance-trend-empty { padding: 18px 20px 22px; color: #89978e; font-size: 12px; line-height: 1.6; }
+.balance-chart-wrap { width: 100%; overflow-x: auto; padding: 3px 17px 0; }
+.balance-chart { display: block; width: 100%; min-width: 520px; height: auto; overflow: visible; }
+.balance-chart-gridline { stroke: #e9eeea; stroke-width: 1; }
+.balance-chart-baseline { stroke: #bdc9c0; stroke-width: 1.4; }
+.balance-chart-axis { fill: #8a978f; font-size: 10px; }
+.balance-chart-month { fill: #40554a; font-size: 11px; font-weight: 700; }
+.balance-chart-year { fill: #98a39c; font-size: 9px; }
+.balance-chart-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 2px 20px 17px; color: #64746a; font-size: 11px; }
+.balance-chart-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.balance-chart-legend i, .balance-trend-table th[scope="row"] i { display: inline-block; width: 9px; height: 9px; flex: 0 0 auto; border-radius: 2px; }
+.balance-trend-table-wrap { overflow-x: auto; border-top: 1px solid #edf0ed; }
+.balance-trend-table { min-width: 580px; }
+.balance-trend-table th, .balance-trend-table td { height: auto; padding: 10px 15px; font-size: 11px; white-space: nowrap; }
+.balance-trend-table thead th { color: #7b8981; font-size: 10px; text-transform: capitalize; }
+.balance-trend-table th[scope="row"] { display: flex; align-items: center; gap: 8px; color: #64746a; font-weight: 600; }
+.balance-trend-table td { color: #30483a; text-align: right; }
 .balance-workspace { display: grid; gap: 18px; }
 .balance-controls { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; align-items: end; gap: 12px; padding: 16px; border: 1px solid #e7ece7; border-radius: 10px; background: #fff; }
 .balance-controls label { display: grid; gap: 6px; color: #58675e; font-size: 10px; font-weight: 700; }
