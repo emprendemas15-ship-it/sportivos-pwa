@@ -3,7 +3,7 @@ import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { downloadClientStatement, shareClientStatement } from './lib/client-statement'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
-import { getValidationCreditSummary, mergeValidationCreditMovements, type SavedValidationCreditMovement } from './lib/credit-validation'
+import { getValidationCreditSummary, mergeValidationCreditMovements, type SavedValidationCreditMovement, type ValidationCreditPerson } from './lib/credit-validation'
 
 const currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const number = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 })
@@ -387,7 +387,9 @@ function ValidationCreditView() {
   const [showMovementForm, setShowMovementForm] = useState(false)
   const [isSavingMovement, setIsSavingMovement] = useState(false)
   const [movementFormError, setMovementFormError] = useState('')
+  const [movementActionError, setMovementActionError] = useState('')
   const [movementNotice, setMovementNotice] = useState('')
+  const [deletingMovementId, setDeletingMovementId] = useState<string | null>(null)
   const [form, setForm] = useState<ValidationCreditFormValues>(() => ({
     requestId: '',
     personSheet: '',
@@ -575,10 +577,37 @@ function ValidationCreditView() {
     }
   }
 
+  async function deleteValidationMovement(row: ValidationCreditPerson['transactions'][number], personName: string) {
+    if (!row.savedMovementId || !supabase || deletingMovementId) return
+    const description = [
+      `Persona: ${personName}`,
+      `Fecha: ${row.fecha ?? 'sin fecha'}`,
+      `Movimiento: ${row.tipo === 'ABONO' ? 'abono' : 'crédito'}`,
+      row.detalle ? `Detalle: ${row.detalle}` : '',
+      `Valor: ${currency.format(row.tipo === 'ABONO' ? row.abona : row.total || row.valor)}`,
+    ].filter(Boolean).join('\n')
+    if (!window.confirm(`¿Eliminar este movimiento de VALIDACION CREDITOS?\n\n${description}\n\nSe actualizarán los totales y el saldo de este módulo. Esta acción no se puede deshacer.`)) return
+
+    setDeletingMovementId(row.savedMovementId)
+    setMovementActionError('')
+    try {
+      const result = await supabase.from(validationCreditTable).delete().eq('id', row.savedMovementId).select('id')
+      if (result.error) throw new Error(result.error.message)
+      if (result.data?.length !== 1) throw new Error('No se encontró el movimiento para eliminarlo.')
+      setMovements((current) => current.filter((movement) => movement.id !== row.savedMovementId))
+      setMovementNotice('Movimiento eliminado. Se actualizaron los totales de VALIDACION CREDITOS.')
+    } catch (error) {
+      setMovementActionError('No se pudo eliminar el movimiento. ' + (error instanceof Error ? error.message : 'Error desconocido.'))
+    } finally {
+      setDeletingMovementId(null)
+    }
+  }
+
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Migración del archivo CREDITOS (2).xlsm con personas, compras, abonos y saldos pendientes por hoja.</p></div><button className="primary-button" type="button" onClick={() => openMovementForm()}><span className="plus">+</span> Registrar crédito o abono</button></div>
     {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
     {movementNotice && <p className="validation-credit-notice" role="status">{movementNotice}</p>}
+    {movementActionError && <p className="form-error" role="alert">{movementActionError}</p>}
     {isLoadingMovements && <p className="validation-credit-loading" role="status">Cargando movimientos del módulo...</p>}
     <div className="summary-grid">
       <SummaryCard label="Total personas" value={number.format(filteredSummary.totalPersonas)} note="Personas registradas" tone="blue" />
@@ -613,8 +642,8 @@ function ValidationCreditView() {
                   <div style={{ display: 'grid', gap: '12px' }}>
                     <div className="validation-credit-person-heading"><strong>Ficha de {person.name}</strong><button className="small-action" type="button" onClick={() => openMovementForm(person.sheet)}>Registrar crédito o abono</button></div>
                     <div className="table-wrap"><table>
-                      <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th></tr></thead>
-                      <tbody>{person.transactions.slice(-8).map((row, index) => <tr key={`${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td></tr>)}</tbody>
+                      <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Acciones</th></tr></thead>
+                      <tbody>{person.transactions.slice(-8).map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td>{row.savedMovementId ? <button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button> : '—'}</td></tr>)}</tbody>
                     </table></div>
                   </div>
                 </td>

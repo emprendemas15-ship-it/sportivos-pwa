@@ -4,7 +4,7 @@ Aplicación web progresiva basada en las hojas visibles de `SPORTIVOS (1) (1).xl
 
 También se incorporó el módulo `VALIDACION CREDITOS`, alimentado por `CREDITOS (2).xlsm`, con migración por persona, compras, abonos, saldos pendientes y detalle individual por cliente. La auditoría de hojas, formularios, columnas y cálculos está en [docs/excel-audit.md](./docs/excel-audit.md).
 
-La ficha conserva el historial importado y permite agregar créditos o abonos por persona. Los movimientos nuevos se guardan aparte de la tabla del módulo `CREDITOS`, en `public.validacion_creditos_movimientos`; para habilitar el formulario, ejecuta una sola vez [la migración de Supabase](./supabase/migrations/20261102173000_validacion_creditos_movimientos.sql) desde el SQL Editor del proyecto Supabase. Como la PWA es pública y no requiere inicio de sesión, esa tabla también permite lectura e inserción públicas.
+La ficha conserva el historial importado y permite agregar o eliminar créditos y abonos por persona. Los movimientos nuevos se guardan aparte de la tabla del módulo `CREDITOS`, en `public.validacion_creditos_movimientos`; para habilitar el formulario y sus acciones, ejecuta una sola vez [la migración de Supabase](./supabase/migrations/20261102173000_validacion_creditos_movimientos.sql) desde el SQL Editor del proyecto Supabase. Como la PWA es pública y no requiere inicio de sesión, esa tabla permite lectura, inserción y eliminación públicas.
 
 ## Desarrollo y validación
 
@@ -21,13 +21,13 @@ npm run lint --workspace=frontend
 
 Los registros de las siete hojas de datos se sincronizan con Supabase. El historial de balances se guarda en la tabla `balance` para que los cierres se compartan entre dispositivos. La importación desde el libro se prepara con `scripts/migrate-excel-to-supabase.ps1`; `-Preview` valida cantidades y columnas sin escribir datos.
 
-En cada tabla de datos se puede borrar un registro con confirmación; al sincronizar de nuevo se recalculan las existencias y los saldos derivados. Los balances ya guardados se conservan como cierres históricos y se actualizan al generar y guardar otra vez el periodo.
+En cada tabla de datos se puede borrar un registro con confirmación; al sincronizar de nuevo se recalculan las existencias y los saldos derivados. En VALIDACION CREDITOS solo se pueden borrar los movimientos nuevos; el historial importado del Excel permanece intacto. Los balances ya guardados se conservan como cierres históricos y se actualizan al generar y guardar otra vez el periodo.
 
 La publicación está configurada en `.github/workflows/pages.yml`. GitHub Actions necesita los secretos `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`. El archivo local `frontend/.env.local` no se sube al repositorio.
 
 La PWA conserva un identificador y una URL de inicio estables para que el acceso directo instalado siga apuntando a la misma aplicación. Al abrirla, volver a enfocarla o recuperar conexión, comprueba si hay una nueva versión; mientras permanece abierta, vuelve a comprobarla cada minuto y se actualiza automáticamente.
 
-La PWA queda pública y sin inicio de sesión, según lo solicitado. Por ello, los nombres de clientes, créditos y demás información de la base son accesibles públicamente mediante la aplicación y la API.
+La PWA queda pública y sin inicio de sesión, según lo solicitado. Por ello, los nombres de clientes, créditos y demás información de la base son accesibles públicamente mediante la aplicación y la API. El borrado de movimientos de VALIDACION CREDITOS también queda disponible para cualquier visitante; no hay autenticación que lo limite a una persona específica.
 
 ## Estructura
 

@@ -1,6 +1,7 @@
 import validationCreditDataRaw from '../data/validacion-creditos.json'
 
 export type ValidationCreditTransaction = {
+  savedMovementId?: string
   fecha: string | null
   codigo: string | null
   detalle: string | null
@@ -93,6 +94,7 @@ export function mergeValidationCreditMovements(movements: SavedValidationCreditM
     const addedPayments = additions.filter((movement) => movement.movement_type === 'ABONO').reduce((total, movement) => total + movement.payment_amount, 0)
     const addedDiscounts = additions.reduce((total, movement) => total + movement.discount, 0)
     const addedTransactions: ValidationCreditTransaction[] = additions.map((movement) => ({
+      savedMovementId: movement.id,
       fecha: movement.movement_date,
       codigo: movement.code,
       detalle: movement.detail,

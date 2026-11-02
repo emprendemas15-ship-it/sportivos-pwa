@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS validacion_creditos_person_date_idx
 
 ALTER TABLE public.validacion_creditos_movimientos ENABLE ROW LEVEL SECURITY;
 
-GRANT SELECT, INSERT ON public.validacion_creditos_movimientos TO anon, authenticated;
+GRANT SELECT, INSERT, DELETE ON public.validacion_creditos_movimientos TO anon, authenticated;
 
 DROP POLICY IF EXISTS "Public can read validation credit movements"
   ON public.validacion_creditos_movimientos;
@@ -44,3 +44,10 @@ CREATE POLICY "Public can add validation credit movements"
   ON public.validacion_creditos_movimientos
   FOR INSERT TO anon, authenticated
   WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public can delete validation credit movements"
+  ON public.validacion_creditos_movimientos;
+CREATE POLICY "Public can delete validation credit movements"
+  ON public.validacion_creditos_movimientos
+  FOR DELETE TO anon, authenticated
+  USING (true);
