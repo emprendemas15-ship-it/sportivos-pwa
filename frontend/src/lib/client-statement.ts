@@ -27,7 +27,7 @@ async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise
   const pdf = await PDFDocument.create()
   const regular = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
-  const pageSize = 25
+  const pageSize = 23
   const pages = Math.max(1, Math.ceil(transactions.length / pageSize))
   const ordered = [...transactions].sort((a, b) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA))
   const totalCharges = ordered.filter((row) => !reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
