@@ -26,7 +26,7 @@ type SyncState = 'syncing' | 'synced' | 'error'
 type CreditFilters = { name: string; type: string; from: string; to: string }
 
 function App() {
-  const { data, syncState, syncError, refreshAll } = useWorkbookSync()
+  const { data, syncState, syncError, writeBlocked, refreshAll, markWriteFailure, markWriteSuccess } = useWorkbookSync()
   const balanceHistory = useSavedBalances()
   const [active, setActive] = useState<ModuleKey | 'MENU'>('MENU')
   const [search, setSearch] = useState('')
@@ -78,17 +78,22 @@ function App() {
     const client = supabase as any
     const table = remoteTableByModule[active]
     if (!table) return
-    const result = await client.from(table).insert(toRemoteRow(active, normalized))
-    if (result.error) {
-      flashNotice('No se pudo guardar: ' + result.error.message)
-      return
+    try {
+      const result = await client.from(table).insert(toRemoteRow(active, normalized))
+      if (result.error) throw new Error(result.error.message)
+      markWriteSuccess()
+      await refreshAll()
+      setShowForm(false)
+      flashNotice('Registro guardado en ' + active + ' y sincronizado.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido'
+      markWriteFailure('La base está en línea, pero no se pudo guardar el registro. ' + message)
+      flashNotice('No se pudo guardar: ' + message)
     }
-    await refreshAll()
-    setShowForm(false)
-    flashNotice('Registro guardado en ' + active + ' y sincronizado.')
   }
 
-  const connectionLabel = syncState === 'synced' ? 'Sincronizado con la base compartida' : syncState === 'syncing' ? 'Conectando con la base...' : 'Sin conexión - guardado bloqueado'
+  const connectionStatus = syncState === 'error' ? 'offline' : syncState === 'syncing' ? 'checking' : writeBlocked ? 'blocked' : 'online'
+  const connectionLabel = connectionStatus === 'offline' ? 'Sin conexión' : connectionStatus === 'blocked' ? 'En línea · no guarda' : connectionStatus === 'checking' ? 'Conectando…' : 'En línea · listo'
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -111,7 +116,7 @@ function App() {
     <main className="main-content">
       <header className="topbar">
         <div className="breadcrumb"><button type="button" onClick={() => navigate('MENU')}>MENU</button><span>/</span><strong>{active}</strong></div>
-        <div className="topbar-right"><span className="connection"><i /> {connectionLabel}</span><button className="refresh-button" type="button" onClick={() => void refreshAll(true)}>Actualizar</button><span className="source-pill">SPORTIVOS - XLSM</span></div>
+        <div className="topbar-right"><span className="connection" data-state={connectionStatus} role="status" aria-live="polite" title={connectionStatus === 'online' ? 'Conectado con la base compartida; puedes guardar registros.' : connectionStatus === 'blocked' ? 'La base responde, pero el último intento de guardar falló. Puedes reintentar después de revisar el aviso.' : connectionStatus === 'offline' ? 'No se pudo conectar con la base compartida.' : 'Comprobando la conexión con la base compartida.'}><i aria-hidden="true" /><span>{connectionLabel}</span></span><button className="refresh-button" type="button" onClick={() => void refreshAll(true)} title="Volver a cargar los datos y recalcular existencias">Actualizar</button></div>
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
@@ -125,8 +130,21 @@ function useWorkbookSync() {
   const [data, setData] = useState<Record<ModuleKey, WorkbookRow[]>>(emptyWorkbookData)
   const [syncState, setSyncState] = useState<SyncState>('syncing')
   const [syncError, setSyncError] = useState('')
+  const [writeBlocked, setWriteBlocked] = useState(false)
   const refreshInFlight = useRef(false)
   const hasLoadedRemote = useRef(false)
+  const writeBlockedRef = useRef(false)
+
+  const markWriteFailure = useCallback((message: string) => {
+    writeBlockedRef.current = true
+    setWriteBlocked(true)
+    setSyncError(message)
+  }, [])
+  const markWriteSuccess = useCallback(() => {
+    writeBlockedRef.current = false
+    setWriteBlocked(false)
+    setSyncError('')
+  }, [])
 
   const refreshAll = useCallback(async (showNotice = false) => {
     if (!supabase) {
@@ -136,14 +154,15 @@ function useWorkbookSync() {
     }
     if (refreshInFlight.current) return
     refreshInFlight.current = true
-    if (!hasLoadedRemote.current) setSyncState('syncing')
+    if (!hasLoadedRemote.current || showNotice) setSyncState('syncing')
     try {
       const remoteData = await readRemoteData()
       hasLoadedRemote.current = true
       setData(remoteData)
-      setSyncError('')
+      setSyncError(writeBlockedRef.current ? 'La base está en línea, pero un intento de guardado fue rechazado. Revisa los permisos o intenta guardar de nuevo.' : '')
       setSyncState('synced')
-      if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Datos actualizados desde Supabase.' }))
+      window.dispatchEvent(new CustomEvent('sportivos:balance-updated'))
+      if (showNotice) window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Datos recargados y existencias recalculadas con los códigos normalizados. Solo se recuperan registros guardados en la base.' }))
     } catch (error) {
       setSyncState('error')
       setSyncError('No hay conexión con la base compartida. Los cambios no se guardan; vuelve a conectar y pulsa Actualizar. ' + (error instanceof Error ? error.message : ''))
@@ -159,16 +178,35 @@ function useWorkbookSync() {
     const refreshWhenActive = () => {
       if (document.visibilityState === 'visible') void refreshAll()
     }
+    const handleOffline = () => {
+      setSyncState('error')
+      setSyncError('El dispositivo no tiene conexión a internet. Los datos no se pueden cargar ni guardar.')
+    }
+    const handleOnline = () => { void refreshAll() }
     window.addEventListener('focus', refreshWhenActive)
+    window.addEventListener('offline', handleOffline)
+    window.addEventListener('online', handleOnline)
     document.addEventListener('visibilitychange', refreshWhenActive)
     return () => {
       window.clearInterval(timer)
       window.removeEventListener('focus', refreshWhenActive)
+      window.removeEventListener('offline', handleOffline)
+      window.removeEventListener('online', handleOnline)
       document.removeEventListener('visibilitychange', refreshWhenActive)
     }
   }, [refreshAll])
 
-  return { data, syncState, syncError, refreshAll }
+  useEffect(() => {
+    const handleWriteStatus = (event: Event) => {
+      if (!(event instanceof CustomEvent) || typeof event.detail !== 'object' || event.detail === null) return
+      if (event.detail.success === true) markWriteSuccess()
+      else if (event.detail.success === false) markWriteFailure(String(event.detail.message ?? 'La base está en línea, pero no se pudo guardar el cambio.'))
+    }
+    window.addEventListener('sportivos:write-status', handleWriteStatus)
+    return () => window.removeEventListener('sportivos:write-status', handleWriteStatus)
+  }, [markWriteFailure, markWriteSuccess])
+
+  return { data, syncState, syncError, writeBlocked, refreshAll, markWriteFailure, markWriteSuccess }
 }
 
 function useSavedBalances(): MonthlyBalance[] {
@@ -409,6 +447,9 @@ async function persistRemoteBalance(report: MonthlyBalance) {
   const insert = await supabase.from('balance').insert(payload)
   if (insert.error) throw new Error(insert.error.message)
 }
+function reportWriteStatus(success: boolean, message?: string) {
+  window.dispatchEvent(new CustomEvent('sportivos:write-status', { detail: { success, message } }))
+}
 function calculateBalance(data: Record<ModuleKey, WorkbookRow[]>, month: number, year: number, openingFund: number, withdrawalRate: number): MonthlyBalance {
   const sales = data.VENTAS.filter((row) => matchesPeriod(row, month, year))
   const credits = data.CREDITOS.filter((row) => matchesPeriod(row, month, year))
@@ -489,6 +530,7 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
   function generate() { setGenerated(calculateBalance(data, month, year, openingFund, withdrawalPercent / 100)) }
   async function save() {
     if (!supabase) {
+      reportWriteStatus(false, 'No hay conexión con la base compartida para guardar el balance.')
       window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se guardó: falta conexión con la base compartida.' }))
       return
     }
@@ -496,11 +538,14 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
     const next = [...history.filter((item) => item.month !== month || item.year !== year), current].sort((a, b) => a.year - b.year || a.month - b.month)
     try {
       await persistRemoteBalance(current)
+      reportWriteStatus(true)
       setHistory(next); setGenerated(current)
       window.dispatchEvent(new CustomEvent('sportivos:balance-updated'))
       window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Balance guardado en la base compartida para todos tus dispositivos.' }))
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo guardar en la base compartida: ' + (error instanceof Error ? error.message : 'error de conexión') }))
+      const message = error instanceof Error ? error.message : 'error de conexión'
+      reportWriteStatus(false, 'La base está en línea, pero no se pudo guardar el balance. ' + message)
+      window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo guardar en la base compartida: ' + message }))
     }
   }
   function viewSaved(item: MonthlyBalance) { setViewing(item) }
@@ -520,12 +565,17 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
         const remove = await supabase.from('balance').delete().eq('id', match.id)
         if (remove.error) throw new Error(remove.error.message)
       }
+      reportWriteStatus(true)
       const next = history.filter((saved) => saved.month !== item.month || saved.year !== item.year)
       setHistory(next)
       if (generated?.month === item.month && generated.year === item.year) setGenerated(null)
       window.dispatchEvent(new CustomEvent('sportivos:balance-updated'))
       window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'Balance eliminado.' }))
-    } catch (error) { window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo eliminar el balance: ' + (error instanceof Error ? error.message : 'error') })) }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'error'
+      reportWriteStatus(false, 'La base está en línea, pero no se pudo eliminar el balance. ' + message)
+      window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se pudo eliminar el balance: ' + message }))
+    }
   }
   return <div className="balance-workspace"><section className="balance-controls"><label>Mes<select value={month} onChange={(event) => updatePeriod(Number(event.target.value), year)}>{monthLabels.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}</select></label><label>Año<input type="number" min="2000" max="2200" value={year} onChange={(event) => updatePeriod(month, Number(event.target.value))} /></label><label>Fondo mes anterior<input type="number" min="0" value={openingFund} onChange={(event) => { setOpeningFund(Number(event.target.value)); setGenerated(null) }} /></label><label>% retiro sugerido<input type="number" min="0" max="100" step="0.1" value={withdrawalPercent} onChange={(event) => { setWithdrawalPercent(Number(event.target.value)); setGenerated(null) }} /></label><div className="balance-actions"><button className="secondary-button" type="button" onClick={generate}>Generar balance</button><button className="primary-button" type="button" onClick={save}>Guardar balance</button></div></section>
     {hasCurrentReport ? <section className="excel-balance" aria-label="Balance mensual con formato del Excel"><div className="balance-sheet-top"><span><b>% Retiro Sugerido:</b> {number.format(report.withdrawalRate * 100)}%</span><span><b>Fondo Mes Anterior:</b> {currency.format(report.openingFund)}</span></div><h2 className="balance-sheet-title">{title}</h2>
@@ -656,8 +706,9 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
     const credits = sumBy(data.CREDITOS.filter((row) => isCreditType(row.TIPO)), 'CODIGO', 'CANT')
     const returns = sumBy(data.CREDITOS.filter((row) => isReturnType(row.TIPO)), 'CODIGO', 'CANT')
     return data.INVENTARIO_PT.map((row) => {
-      const incoming = entries[String(row.CODIGO ?? '')] ?? Number(row.ENTRADAS ?? 0)
-      const outgoing = (sales[String(row.CODIGO ?? '')] ?? 0) + (credits[String(row.CODIGO ?? '')] ?? 0) - (returns[String(row.CODIGO ?? '')] ?? 0)
+      const code = normalizeCode(row.CODIGO)
+      const incoming = entries[code] ?? Number(row.ENTRADAS ?? 0)
+      const outgoing = (sales[code] ?? 0) + (credits[code] ?? 0) - (returns[code] ?? 0)
       return { ...row, ENTRADAS: incoming, SALIDAS: outgoing, STOCK: incoming - outgoing, GANANCIA: calculateInventoryProfit(row.PRECIO, row.COSTO) }
     })
   }
@@ -668,7 +719,7 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
 
 function sumBy(rows: WorkbookRow[], groupKey: string, valueKey: string): Record<string, number> {
   return rows.reduce<Record<string, number>>((result, row) => {
-    const group = String(row[groupKey] ?? '')
+    const group = normalizeCode(row[groupKey])
     if (group) result[group] = (result[group] ?? 0) + Number(row[valueKey] ?? 0)
     return result
   }, {})
@@ -785,9 +836,9 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
   if (module === 'INVENTARIO_PT') {
     const code = String(next.CODIGO ?? '').trim().toLowerCase()
     const cost = data.COSTOS_NO_PRODUCIDOS.find((item) => String(item.CODIGO ?? '').trim().toLowerCase() === code)
-    const entryCount = sumBy(data.ENTRADAS, 'CODIGO', 'CANTIDAD')[String(next.CODIGO ?? '')] ?? 0
-    const saleCount = sumBy(data.VENTAS, 'CODIGO', 'CANT')[String(next.CODIGO ?? '')] ?? 0
-    const creditCount = sumBy(data.CREDITOS.filter((item) => isCreditType(item.TIPO)), 'CODIGO', 'CANT')[String(next.CODIGO ?? '')] ?? 0
+    const entryCount = sumBy(data.ENTRADAS, 'CODIGO', 'CANTIDAD')[code] ?? 0
+    const saleCount = sumBy(data.VENTAS, 'CODIGO', 'CANT')[code] ?? 0
+    const creditCount = sumBy(data.CREDITOS.filter((item) => isCreditType(item.TIPO)), 'CODIGO', 'CANT')[code] ?? 0
     next.PRECIO = cost ? Number(cost['PRECIO AL PUBLICO'] ?? 0) : null
     next.PRECIO_AL_POR_MAYOR = null
     next.COSTO = cost ? Number(cost['COSTO TOTAL'] ?? Number(cost.COSTO ?? 0) + Number(cost['COSTO FIJO'] ?? 0)) : null
