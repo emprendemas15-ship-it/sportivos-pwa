@@ -339,12 +339,18 @@ function CreditFilterControls({ rows, filters, onChange }: { rows: WorkbookRow[]
   const types = Array.from(new Set(rows.map((row) => String(row.TIPO ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'))
   const update = (key: keyof CreditFilters, value: string) => onChange({ ...filters, [key]: value })
   const hasFilters = Object.values(filters).some(Boolean)
+  const setDateRange = (range: 'month' | '30days') => {
+    const today = new Date()
+    const start = range === 'month' ? new Date(today.getFullYear(), today.getMonth(), 1) : new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29)
+    const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    onChange({ ...filters, from: localDate(start), to: localDate(today) })
+  }
   return <div className="credit-filters" aria-label="Filtros de créditos">
-    <label>Nombre<select aria-label="Filtrar créditos por nombre" value={filters.name} onChange={(event) => update('name', event.target.value)}><option value="">Todas las personas</option>{names.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+    <label>Nombre<input aria-label="Buscar movimientos por nombre" list="credit-client-name-options" placeholder="Escribe o elige una persona" value={filters.name} onChange={(event) => update('name', event.target.value)} /><datalist id="credit-client-name-options">{names.map((name) => <option key={name} value={name} />)}</datalist></label>
     <label>Tipo<select aria-label="Filtrar créditos por tipo" value={filters.type} onChange={(event) => update('type', event.target.value)}><option value="">Todos los tipos</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
     <label>Desde<input aria-label="Fecha desde" type="date" value={filters.from} onChange={(event) => update('from', event.target.value)} /></label>
     <label>Hasta<input aria-label="Fecha hasta" type="date" value={filters.to} onChange={(event) => update('to', event.target.value)} /></label>
-    {hasFilters && <button type="button" className="secondary-button clear-credit-filters" onClick={() => onChange({ name: '', type: '', from: '', to: '' })}>Limpiar</button>}
+    <div className="credit-filter-actions"><div className="credit-date-presets"><button type="button" onClick={() => setDateRange('month')}>Este mes</button><button type="button" onClick={() => setDateRange('30days')}>Últimos 30 días</button></div>{hasFilters && <button type="button" className="clear-credit-filters" onClick={() => onChange({ name: '', type: '', from: '', to: '' })}>Limpiar filtros</button>}</div>
   </div>
 }
 
@@ -752,13 +758,15 @@ function filterCreditRows(rows: WorkbookRow[], filters: CreditFilters): Workbook
   const type = filters.type.trim().toLocaleLowerCase()
   const from = filters.from ? rowDateValue(filters.from) : Number.NEGATIVE_INFINITY
   const to = filters.to ? rowDateValue(filters.to) + 86400000 : Number.POSITIVE_INFINITY
-  return rows.filter((row) => {
+  const matchingRows = rows.filter((row) => {
     const rowName = String(row.NOMBRE ?? '').trim().toLocaleLowerCase()
     const rowType = String(row.TIPO ?? '').trim().toLocaleLowerCase()
     const date = rowDateValue(row.FECHA)
-    return (!name || rowName === name) && (!type || rowType === type) && date >= from && date < to
-  }).sort((a, b) => {
-    const chronological = Boolean(name)
+    return (!name || rowName.includes(name)) && (!type || rowType === type) && date >= from && date < to
+  })
+  const matchingPeople = new Set(matchingRows.map((row) => String(row.NOMBRE ?? '').trim().toLocaleLowerCase()).filter(Boolean))
+  const chronological = Boolean(name) && matchingPeople.size === 1
+  return matchingRows.sort((a, b) => {
     const dateDifference = rowDateValue(a.FECHA) - rowDateValue(b.FECHA)
     const insertionDifference = rowCreatedAtValue(a) - rowCreatedAtValue(b)
     return chronological ? dateDifference || insertionDifference : -dateDifference || -insertionDifference
