@@ -667,15 +667,23 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
   const formColumns = isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(isReturn && column.key === 'VALOR')) : columns
   const selectedClient = String(values.NOMBRE ?? '').trim()
   const currentDebt = isCreditForm ? getClientDebt(data.CREDITOS, selectedClient) : 0
-  const returnValue = Math.max(0, Number(values.CANT ?? 0) * Number(values.PRECIO ?? 0) - Number(values.DESCUENTO ?? 0))
+  const returnValue = Math.max(0, calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO))
+  const quantityKey = module === 'ENTRADAS' ? 'CANTIDAD' : 'CANT'
+  const lineQuantity = Number(values[quantityKey] ?? 0)
+  const lineUnitPrice = Number(values.PRECIO ?? 0)
+  const lineDiscount = module === 'ENTRADAS' ? 0 : Number(values.DESCUENTO ?? 0)
+  const lineTotal = calculateLineTotal(lineQuantity, lineUnitPrice, lineDiscount)
   const returnOptions = isReturn ? refundableProducts(data.CREDITOS, selectedClient) : []
   const selectedReturnOption = returnOptions.find((item) => normalizeCode(item.code) === normalizeCode(values.CODIGO))
   const proportionalUnpaid = selectedReturnOption ? selectedReturnOption.outstandingValue * Number(values.CANT ?? 0) / Math.max(1, selectedReturnOption.available) : 0
   const returnDebtPart = isReturn ? Math.min(currentDebt, returnValue, proportionalUnpaid) : 0
   const refundValue = Math.max(0, returnValue - returnDebtPart)
-  const transactionValue = isReturn ? returnValue : isCreditForm && isAbono ? Number(values.VALOR ?? 0) : Number(values.VALOR ?? 0) || Number(values.CANT ?? 0) * Number(values.PRECIO ?? 0) - Number(values.DESCUENTO ?? 0)
+  const transactionValue = isReturn ? returnValue : isCreditForm && isAbono ? Number(values.VALOR ?? 0) : Number(values.VALOR ?? 0) || calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO)
   const projectedDebt = currentDebt + (isReturn ? -returnDebtPart : isAbono ? -transactionValue : transactionValue)
   const productRows = module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm ? getRows('INVENTARIO_PT', data) : []
+  const selectedProduct = productRows.find((row) => normalizeCode(row.CODIGO) === normalizeCode(values.CODIGO))
+  const currentStock = Number(selectedProduct?.STOCK ?? 0)
+  const projectedStock = module === 'ENTRADAS' || isReturn ? currentStock + lineQuantity : currentStock - lineQuantity
 
   function update(key: string, value: string) {
     setValues((current) => {
@@ -753,6 +761,12 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
           <div><span>{isAbono ? 'Saldo despues del abono' : values.TIPO === 'Devolución' ? 'Saldo despues de la devolución' : 'Nueva deuda con este credito'}</span><strong className={projectedDebt < 0 ? 'debt-negative' : ''}>{currency.format(projectedDebt)}</strong></div>
         </div>}
         {module === 'VENTAS' || isCreditForm && !isAbono ? <p className="form-hint">Al elegir el código se completa el producto y su precio. Los códigos sin existencias no se pueden seleccionar.</p> : null}
+        {(module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm && !isAbono) && <div className="quantity-preview" aria-live="polite">
+          <div><span>{module === 'ENTRADAS' ? 'Unidades ingresadas' : 'Unidades'}</span><strong>{number.format(lineQuantity)}</strong></div>
+          <div><span>{module === 'ENTRADAS' ? 'Costo por unidad' : 'Precio por unidad'}</span><strong>{currency.format(lineUnitPrice)}</strong></div>
+          <div><span>{module === 'VENTAS' ? 'Total de la venta' : module === 'ENTRADAS' ? 'Valor total de la entrada' : 'Valor de los productos'}</span><strong>{currency.format(lineTotal)}</strong></div>
+          <div><span>{module === 'ENTRADAS' ? 'Stock después de la entrada' : isReturn ? 'Stock después de devolución' : 'Stock después de la venta'}</span><strong>{selectedProduct ? number.format(projectedStock) : '-'}</strong></div>
+        </div>}
         {isReturn && <div className="debt-preview"><div><span>Valor de los productos devueltos</span><strong>{currency.format(returnValue)}</strong></div><div><span>Abono a la deuda</span><strong>{currency.format(returnDebtPart)}</strong></div><div><span>Reembolso a entregar al cliente</span><strong>{currency.format(refundValue)}</strong></div></div>}
         {isCreditForm && isAbono && <p className="form-hint">El abono reduce la deuda del cliente y se registra en VALOR.</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
@@ -926,7 +940,7 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     next.STOCK = entryCount - saleCount - creditCount
   }
   if (module === 'VENTAS') {
-    next.TOTAL = Number(next.CANT ?? 0) * Number(next.PRECIO ?? 0) - Number(next.DESCUENTO ?? 0)
+    next.TOTAL = calculateLineTotal(next.CANT, next.PRECIO, next.DESCUENTO)
     next.MES = monthName(String(next.FECHA ?? ''))
   }
   if (module === 'GASTOS') {
@@ -956,18 +970,21 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
       next.COMENTARIO = String(next.COMENTARIO ?? 'Devolución')
       next.VALOR = Number(next.VALOR ?? 0)
     } else {
-      next.VALOR = Number(next.VALOR ?? 0) || Number(next.CANT ?? 0) * Number(next.PRECIO ?? 0) - Number(next.DESCUENTO ?? 0)
+      next.VALOR = Number(next.VALOR ?? 0) || calculateLineTotal(next.CANT, next.PRECIO, next.DESCUENTO)
     }
     next.DEUDA = getClientDebt(data.CREDITOS, clientName) + (isAbonoType(type) || isReturnType(type) ? -Number(next.VALOR ?? 0) : Number(next.VALOR ?? 0))
     next.MES = monthName(String(next.FECHA ?? ''))
   }
-  if (module === 'ENTRADAS') next.Columna1 = Number(next.CANTIDAD ?? 0) * Number(next.PRECIO ?? 0)
+  if (module === 'ENTRADAS') next.Columna1 = calculateLineTotal(next.CANTIDAD, next.PRECIO)
   if (module === 'COSTOS_NO_PRODUCIDOS') {
     if (next['COSTO FIJO'] === null || next['COSTO FIJO'] === undefined || next['COSTO FIJO'] === '') next['COSTO FIJO'] = 500
     next['COSTO TOTAL'] = Number(next.COSTO ?? 0) + Number(next['COSTO FIJO'] ?? 0)
     next.Columna1 = Number(next['PRECIO AL PUBLICO'] ?? 0) - Number(next['COSTO TOTAL'] ?? 0)
   }
   return next
+}
+function calculateLineTotal(quantity: CellValue, unitPrice: CellValue, discount: CellValue = 0): number {
+  return Number(quantity ?? 0) * Number(unitPrice ?? 0) - Number(discount ?? 0)
 }
 function formatCell(value: CellValue, key: string): string {
   const cleanValue = cleanExcelError(value)
