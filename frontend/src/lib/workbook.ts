@@ -19,6 +19,20 @@ export type Column = {
   options?: string[]
 }
 
+const excelErrorValues = new Set([-2146826288, -2146826281, -2146826273, -2146826265, -2146826259, -2146826252, -2146826246])
+
+export function cleanExcelError(value: CellValue | undefined): CellValue | null {
+  return typeof value === 'number' && excelErrorValues.has(value) ? null : value ?? null
+}
+
+export function calculateInventoryProfit(retailPrice: CellValue | undefined, totalCost: CellValue | undefined): number | null {
+  const price = cleanExcelError(retailPrice)
+  const cost = cleanExcelError(totalCost)
+  if (price === null || price === '' || cost === null || cost === '') return null
+  const profit = Number(price) - Number(cost)
+  return Number.isFinite(profit) ? profit : null
+}
+
 export const moduleColumns: Record<ModuleKey, Column[]> = {
   INVENTARIO_PT: [
     { key: 'CODIGO', label: 'CODIGO', required: true }, { key: 'DETALLE', label: 'DETALLE', required: true },

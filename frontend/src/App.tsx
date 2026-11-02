@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
+import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { downloadClientStatement, shareClientStatement } from './lib/client-statement'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
 
@@ -452,14 +452,13 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
   const [history, setHistory] = useState<MonthlyBalance[]>([])
   const [generated, setGenerated] = useState<MonthlyBalance | null>(null)
   const [viewing, setViewing] = useState<MonthlyBalance | null>(null)
-  const historySyncStarted = useRef(false)
   useEffect(() => {
-    if (!supabase || historySyncStarted.current) return
-    historySyncStarted.current = true
+    if (!supabase) return
     let cancelled = false
     void (async () => {
       const result = await supabase.from('balance').select('*')
       if (result.error) throw new Error(result.error.message)
+      if (cancelled) return
       const remoteHistory = (result.data ?? []).map((row) => parseBalanceSnapshot(row['Estado del período'])).filter((item): item is MonthlyBalance => item !== null)
       const historyByPeriod = new Map<string, MonthlyBalance>()
       const duplicatePeriods = new Set<string>()
@@ -660,7 +659,7 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
     return data.INVENTARIO_PT.map((row) => {
       const incoming = entries[String(row.CODIGO ?? '')] ?? Number(row.ENTRADAS ?? 0)
       const outgoing = (sales[String(row.CODIGO ?? '')] ?? 0) + (credits[String(row.CODIGO ?? '')] ?? 0) - (returns[String(row.CODIGO ?? '')] ?? 0)
-      return { ...row, ENTRADAS: incoming, SALIDAS: outgoing, STOCK: incoming - outgoing, GANANCIA: Number(row.PRECIO_AL_POR_MAYOR ?? 0) - Number(row.COSTO ?? 0) }
+      return { ...row, ENTRADAS: incoming, SALIDAS: outgoing, STOCK: incoming - outgoing, GANANCIA: calculateInventoryProfit(row.PRECIO, row.COSTO) }
     })
   }
   if (module === 'CLIENTES') return data.CLIENTES.map((row) => ({ ...row, Columna1: getClientDebt(data.CREDITOS, String(row.NOMBRE ?? '').trim()) }))
@@ -841,10 +840,11 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
   return next
 }
 function formatCell(value: CellValue, key: string): string {
-  if (value === null || value === undefined || value === '') return '-'
-  if (key.includes('PRECIO') || key.includes('COSTO') || key === 'VALOR' || key === 'TOTAL' || key === 'DEUDA' || key === 'GANANCIA' || key === 'DESCUENTO') return currency.format(Number(value))
-  if (key === 'FECHA' || key === 'FECHA DE PAGO') return String(value).slice(0, 10)
-  return typeof value === 'number' ? number.format(value) : String(value)
+  const cleanValue = cleanExcelError(value)
+  if (cleanValue === null || cleanValue === '') return '-'
+  if (key.includes('PRECIO') || key.includes('COSTO') || key === 'VALOR' || key === 'TOTAL' || key === 'DEUDA' || key === 'GANANCIA' || key === 'DESCUENTO') return currency.format(Number(cleanValue))
+  if (key === 'FECHA' || key === 'FECHA DE PAGO') return String(cleanValue).slice(0, 10)
+  return typeof cleanValue === 'number' ? number.format(cleanValue) : String(cleanValue)
 }
 function moduleDescription(module: ModuleKey): string {
   const descriptions: Partial<Record<ModuleKey, string>> = {
@@ -877,4 +877,3 @@ function emptyWorkbookData(): Record<ModuleKey, WorkbookRow[]> {
 }
 
 export default App
-
