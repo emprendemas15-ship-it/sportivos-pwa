@@ -23,20 +23,23 @@ const remoteTableByModule: Partial<Record<ModuleKey, string>> = {
   INVENTARIO_PT: 'inventario_pt', ENTRADAS: 'entradas', VENTAS: 'ventas', GASTOS: 'gastos', CREDITOS: 'creditos', CLIENTES: 'clientes', COSTOS_NO_PRODUCIDOS: 'costos_no_producidos',
 }
 type SyncState = 'syncing' | 'synced' | 'error'
+type CreditFilters = { name: string; type: string; from: string; to: string }
 
 function App() {
   const { data, syncState, syncError, refreshAll } = useWorkbookSync()
   const balanceHistory = useSavedBalances()
   const [active, setActive] = useState<ModuleKey | 'MENU'>('MENU')
   const [search, setSearch] = useState('')
+  const [creditFilters, setCreditFilters] = useState<CreditFilters>({ name: '', type: '', from: '', to: '' })
   const [showForm, setShowForm] = useState(false)
   const [notice, setNotice] = useState('')
 
   const rows = useMemo(() => getRows(active, data), [active, data])
   const filteredRows = useMemo(() => {
+    if (active === 'CREDITOS') return filterCreditRows(rows, creditFilters)
     const needle = search.trim().toLowerCase()
     return needle ? rows.filter((row) => Object.values(row).some((value) => String(value ?? '').toLowerCase().includes(needle))) : rows
-  }, [rows, search])
+  }, [active, rows, search, creditFilters])
 
   const flashNotice = useCallback((message: string) => {
     setNotice(message)
@@ -108,7 +111,7 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-    {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onNotice={flashNotice} />}
+    {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onNotice={flashNotice} />}
     </main>
     {showForm && active !== 'MENU' && <RecordForm module={active} data={data} onClose={() => setShowForm(false)} onSave={saveRow} />}
   </div>
@@ -318,13 +321,27 @@ function SummaryCard({ label, value, note, tone }: { label: string; value: strin
   return <article className="summary-card"><div className="summary-top"><span>{label}</span><span className={'summary-icon ' + tone}>*</span></div><strong>{value}</strong><small>{note}</small></article>
 }
 
-function ModuleView({ module, data, rows, totalRows, search, onSearch, onNew, onNotice }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; onNew: () => void; onNotice: (message: string) => void }) {
+function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onNotice }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onNotice: (message: string) => void }) {
   const columns = moduleColumns[module]
   const isReport = module === 'BALANCE'
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">HOJA DEL LIBRO</p><h1>{module}</h1><p className="page-description">{moduleDescription(module)}</p></div>{editableModules.has(module) && <button className="primary-button" type="button" onClick={onNew}><span className="plus">+</span> Nuevo registro</button>}</div>
-    {isReport ? <ReportView data={data} /> : <section className="catalog-card"><div className="catalog-header"><div><h2>{module}</h2><p>{columns.length} columnas - {totalRows} registros - busqueda en todos los campos</p></div><label className="search-box"><span>?</span><input aria-label={'Buscar en ' + module} value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Buscar en la hoja..." /><kbd>Ctrl K</kbd></label></div><div className="table-wrap"><table><thead><tr>{columns.filter((column) => module !== 'CLIENTES' || column.key !== 'Columna1').map((column) => <th key={column.key}>{column.label}</th>)}{module === 'CLIENTES' && <><th>SALDO PENDIENTE</th><th>ESTADO DE CUENTA</th></>}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 1 : 0)} className="empty-state"><strong>Sin registros</strong><span>Usa Nuevo registro para capturar un dato.</span></td></tr> : rows.map((row, index) => { const clientName = String(row.NOMBRE ?? '').trim(); const statementRows = getClientTransactions(data.CREDITOS, clientName); return <tr key={module + '-' + String(row.id ?? index)}>{columns.filter((column) => module !== 'CLIENTES' || column.key !== 'Columna1').map((column) => <td key={column.key}>{formatCell(row[column.key], column.key)}</td>)}{module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => downloadClientStatement(clientName, statementRows)}>Descargar PDF</button><button type="button" className="small-action" onClick={() => void shareClientStatement(clientName, statementRows, onNotice)}>Compartir</button></div></td></>}</tr> })}</tbody></table></div><footer className="table-footer"><span>Mostrando <strong>{rows.length}</strong> de <strong>{totalRows}</strong> registros</span><span className="footer-note">{module === 'CLIENTES' ? 'El saldo y estado de cuenta se calculan desde CREDITOS.' : 'Los campos y nombres siguen la hoja original.'}</span></footer></section>}
+    {isReport ? <ReportView data={data} /> : <section className="catalog-card"><div className="catalog-header"><div><h2>{module}</h2><p>{columns.length} columnas - {rows.length} de {totalRows} registros{module === 'CREDITOS' ? ' - orden cronológico según los filtros' : ' - busqueda en todos los campos'}</p></div>{module === 'CREDITOS' ? <CreditFilterControls rows={data.CREDITOS} filters={creditFilters} onChange={onCreditFiltersChange} /> : <label className="search-box"><span>?</span><input aria-label={'Buscar en ' + module} value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Buscar en la hoja..." /><kbd>Ctrl K</kbd></label>}</div><div className="table-wrap"><table><thead><tr>{columns.filter((column) => module !== 'CLIENTES' || column.key !== 'Columna1').map((column) => <th key={column.key}>{column.label}</th>)}{module === 'CLIENTES' && <><th>SALDO PENDIENTE</th><th>ESTADO DE CUENTA</th></>}</tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 1 : 0)} className="empty-state"><strong>{module === 'CREDITOS' && totalRows > 0 ? 'No hay movimientos con esos filtros' : 'Sin registros'}</strong><span>{module === 'CREDITOS' && totalRows > 0 ? 'Prueba con otro nombre, tipo o rango de fechas.' : 'Usa Nuevo registro para capturar un dato.'}</span></td></tr> : rows.map((row, index) => { const clientName = String(row.NOMBRE ?? '').trim(); const statementRows = getClientTransactions(data.CREDITOS, clientName); return <tr key={module + '-' + String(row.id ?? index)}>{columns.filter((column) => module !== 'CLIENTES' || column.key !== 'Columna1').map((column) => <td key={column.key}>{formatCell(row[column.key], column.key)}</td>)}{module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => downloadClientStatement(clientName, statementRows)}>Descargar PDF</button><button type="button" className="small-action" onClick={() => void shareClientStatement(clientName, statementRows, onNotice)}>Compartir</button></div></td></>}</tr> })}</tbody></table></div><footer className="table-footer"><span>Mostrando <strong>{rows.length}</strong> de <strong>{totalRows}</strong> registros</span><span className="footer-note">{module === 'CLIENTES' ? 'El saldo y estado de cuenta se calculan desde CREDITOS.' : 'Los campos y nombres siguen la hoja original.'}</span></footer></section>}
   </section>
+}
+
+function CreditFilterControls({ rows, filters, onChange }: { rows: WorkbookRow[]; filters: CreditFilters; onChange: (filters: CreditFilters) => void }) {
+  const names = Array.from(new Set(rows.map((row) => String(row.NOMBRE ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'))
+  const types = Array.from(new Set(rows.map((row) => String(row.TIPO ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'es'))
+  const update = (key: keyof CreditFilters, value: string) => onChange({ ...filters, [key]: value })
+  const hasFilters = Object.values(filters).some(Boolean)
+  return <div className="credit-filters" aria-label="Filtros de créditos">
+    <label>Nombre<select aria-label="Filtrar créditos por nombre" value={filters.name} onChange={(event) => update('name', event.target.value)}><option value="">Todas las personas</option>{names.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+    <label>Tipo<select aria-label="Filtrar créditos por tipo" value={filters.type} onChange={(event) => update('type', event.target.value)}><option value="">Todos los tipos</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
+    <label>Desde<input aria-label="Fecha desde" type="date" value={filters.from} onChange={(event) => update('from', event.target.value)} /></label>
+    <label>Hasta<input aria-label="Fecha hasta" type="date" value={filters.to} onChange={(event) => update('to', event.target.value)} /></label>
+    {hasFilters && <button type="button" className="secondary-button clear-credit-filters" onClick={() => onChange({ name: '', type: '', from: '', to: '' })}>Limpiar</button>}
+  </div>
 }
 
 type MonthlyBalance = { month: number; year: number; openingFund: number; cashSales: number; transferSales: number; totalCollections: number; availableCash: number; creditsGranted: number; payments: number; returns: number; refunds: number; receivables: number; productionCosts: number; nonProducedCosts: number; fixedCosts: number; operatingExpenses: number; totalExpenses: number; remainingCash: number; withdrawalRate: number; suggestedWithdrawal: number; nextFund: number }
@@ -721,6 +738,27 @@ function rowDateValue(value: CellValue): number {
   if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1])).getTime()
   const timestamp = Date.parse(raw)
   return Number.isNaN(timestamp) ? 0 : timestamp
+}
+function rowCreatedAtValue(row: WorkbookRow): number {
+  const timestamp = Date.parse(String(row.created_at ?? row.updated_at ?? ''))
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+function filterCreditRows(rows: WorkbookRow[], filters: CreditFilters): WorkbookRow[] {
+  const name = filters.name.trim().toLocaleLowerCase()
+  const type = filters.type.trim().toLocaleLowerCase()
+  const from = filters.from ? rowDateValue(filters.from) : Number.NEGATIVE_INFINITY
+  const to = filters.to ? rowDateValue(filters.to) + 86400000 : Number.POSITIVE_INFINITY
+  return rows.filter((row) => {
+    const rowName = String(row.NOMBRE ?? '').trim().toLocaleLowerCase()
+    const rowType = String(row.TIPO ?? '').trim().toLocaleLowerCase()
+    const date = rowDateValue(row.FECHA)
+    return (!name || rowName === name) && (!type || rowType === type) && date >= from && date < to
+  }).sort((a, b) => {
+    const chronological = Boolean(name)
+    const dateDifference = rowDateValue(a.FECHA) - rowDateValue(b.FECHA)
+    const insertionDifference = rowCreatedAtValue(a) - rowCreatedAtValue(b)
+    return chronological ? dateDifference || insertionDifference : -dateDifference || -insertionDifference
+  })
 }
 function matchesPeriod(row: WorkbookRow, month: number, year: number): boolean {
   if (month < 1 || month > 12 || year < 2000) return false
