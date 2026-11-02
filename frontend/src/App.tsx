@@ -258,7 +258,6 @@ function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, Workbook
     <section className="menu-card"><div className="section-heading"><div><h2>HOJAS Y FORMULARIOS</h2><p>Acceso directo a cada modulo visible del archivo original.</p></div></div>
       <div className="module-grid">{menuItems.filter((item) => item.key !== 'MENU').map((item) => <button key={item.key} className="module-tile" type="button" onClick={() => onNavigate(item.key)}><span className="tile-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.key === 'BALANCE' ? 'Historial mensual' : `${data[item.key as ModuleKey].length} registros`}</small></span><span className="tile-arrow">-&gt;</span></button>)}</div>
     </section>
-      <section className="logic-card"><div><p className="eyebrow">RELACIONES DEL LIBRO</p><h2>Relaciones de las hojas activas</h2><p>INVENTARIO_PT toma entradas y ventas. BALANCE guarda un resumen por cada periodo, incluidos septiembre y los meses siguientes.</p></div><div className="flow-line"><span>HOJAS ACTIVAS</span><b>-&gt;</b><span>REGISTROS</span><b>-&gt;</b><span>BALANCE</span></div></section>
   </section>
 }
 
