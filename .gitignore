@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+prisma/*.db
+prisma/*.db-journal
+.DS_Store

@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum InventoryEntryType {
+  PURCHASE
+  PRODUCTION
+  ADJUSTMENT
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+  OTHER
+}
+
+enum CreditStatus {
+  OPEN
+  PAID
+  VOID
+}
+
+model Role {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  active       Boolean    @default(true)
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  auditLogs    AuditLog[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([roleId])
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  document  String?  @unique
+  phone     String?
+  email     String?  @unique
+  address   String?
+  notes     String?
+  active    Boolean  @default(true)
+  sales     Sale[]
+  credits   Credit[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([active])
+}
+
+model Product {
+  id             String          @id @default(cuid())
+  code           String          @unique
+  name           String
+  description    String?
+  retailPrice    Decimal         @db.Decimal(12, 2)
+  wholesalePrice Decimal?        @db.Decimal(12, 2)
+  active         Boolean         @default(true)
+  costs          ProductCost[]
+  inventory      InventoryEntry[]
+  saleItems      SaleItem[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([name])
+  @@index([active])
+}
+
+model ProductCost {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  unitCost    Decimal  @db.Decimal(12, 2)
+  fixedCost   Decimal  @default(0) @db.Decimal(12, 2)
+  laborCost   Decimal  @default(0) @db.Decimal(12, 2)
+  effectiveAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([productId, effectiveAt])
+}
+
+model InventoryEntry {
+  id        String             @id @default(cuid())
+  productId String
+  product   Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Decimal            @db.Decimal(12, 3)
+  type      InventoryEntryType
+  note      String?
+  createdAt DateTime           @default(now())
+
+  @@index([productId, createdAt])
+  @@index([type])
+}
+
+model Sale {
+  id            String        @id @default(cuid())
+  clientId      String?
+  client        Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  paymentMethod PaymentMethod
+  subtotal      Decimal       @db.Decimal(12, 2)
+  discount      Decimal       @default(0) @db.Decimal(12, 2)
+  total         Decimal       @db.Decimal(12, 2)
+  note          String?
+  items         SaleItem[]
+  credit        Credit?
+  soldAt        DateTime      @default(now())
+  createdAt     DateTime      @default(now())
+
+  @@index([soldAt])
+  @@index([clientId])
+}
+
+model SaleItem {
+  id             String  @id @default(cuid())
+  saleId         String
+  sale           Sale    @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity       Decimal @db.Decimal(12, 3)
+  unitPrice      Decimal @db.Decimal(12, 2)
+  unitCost       Decimal @db.Decimal(12, 2)
+  lineTotal      Decimal @db.Decimal(12, 2)
+
+  @@index([saleId])
+  @@index([productId])
+}
+
+model Credit {
+  id             String       @id @default(cuid())
+  clientId       String
+  client         Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  saleId         String?      @unique
+  sale           Sale?        @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  initialBalance Decimal      @db.Decimal(12, 2)
+  status         CreditStatus @default(OPEN)
+  note           String?
+  payments       CreditPayment[]
+  issuedAt       DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+
+  @@index([clientId, status])
+  @@index([issuedAt])
+}
+
+model CreditPayment {
+  id        String        @id @default(cuid())
+  creditId  String
+  credit    Credit        @relation(fields: [creditId], references: [id], onDelete: Restrict)
+  amount    Decimal       @db.Decimal(12, 2)
+  method    PaymentMethod
+  note      String?
+  paidAt    DateTime      @default(now())
+  createdAt DateTime      @default(now())
+
+  @@index([creditId, paidAt])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  category    String
+  description String
+  amount      Decimal  @db.Decimal(12, 2)
+  spentAt     DateTime
+  note        String?
+  createdAt   DateTime @default(now())
+
+  @@index([spentAt])
+  @@index([category])
+}
+
+model Balance {
+  id                     String   @id @default(cuid())
+  month                  DateTime @unique
+  openingFund            Decimal  @default(0) @db.Decimal(12, 2)
+  cashCollected          Decimal  @default(0) @db.Decimal(12, 2)
+  transferCollected      Decimal  @default(0) @db.Decimal(12, 2)
+  costs                  Decimal  @default(0) @db.Decimal(12, 2)
+  expenses               Decimal  @default(0) @db.Decimal(12, 2)
+  suggestedWithdrawalPct Decimal  @default(20) @db.Decimal(5, 2)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([month])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  entityType String
+  entityId   String
+  action     String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([userId, createdAt])
+}
