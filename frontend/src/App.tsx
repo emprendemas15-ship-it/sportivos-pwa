@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { downloadClientStatement, shareClientStatement } from './lib/client-statement'
+import { downloadValidationCreditReceipt } from './lib/validation-credit-receipt'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
 import { getValidationCreditSummary, mergeValidationCreditMovements, type SavedValidationCreditMovement, type ValidationCreditPerson } from './lib/credit-validation'
 
@@ -38,10 +39,13 @@ type ValidationCreditFormValues = {
   discount: string
   paymentAmount: string
   business: string
+  businessDetail: string
+  customCode: boolean
 }
 
 const validationCreditTable = 'validacion_creditos_movimientos'
-const validationCreditBusinesses = ['SPORTIVOS', 'COLIPETS']
+const validationCreditBusinesses = ['SPORTIVOS', 'COLIPETS', 'OTRO']
+const customCreditCodeOption = '__CUSTOM_CREDIT_CODE__'
 const localDateInputValue = () => {
   const date = new Date()
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -188,7 +192,7 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onDelete={deleteRow} deletingRecord={deletingRecord} onNotice={flashNotice} />}
+      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onDelete={deleteRow} deletingRecord={deletingRecord} onNotice={flashNotice} />}
     </main>
     {showForm && active !== 'MENU' && <RecordForm module={active} data={data} onClose={() => setShowForm(false)} onSave={saveRow} />}
   </div>
@@ -378,7 +382,7 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   return next
 }
 
-function ValidationCreditView() {
+function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [movements, setMovements] = useState<SavedValidationCreditMovement[]>([])
@@ -402,6 +406,8 @@ function ValidationCreditView() {
     discount: '0',
     paymentAmount: '',
     business: '',
+    businessDetail: '',
+    customCode: false,
   }))
   const baseSummary = useMemo(() => getValidationCreditSummary(), [])
   const allPeople = useMemo(() => mergeValidationCreditMovements(movements), [movements])
@@ -502,6 +508,8 @@ function ValidationCreditView() {
       discount: '0',
       paymentAmount: '',
       business: '',
+      businessDetail: '',
+      customCode: false,
     })
     setShowMovementForm(true)
   }
@@ -516,6 +524,10 @@ function ValidationCreditView() {
     }
     if (!form.business) {
       setMovementFormError('Selecciona la categoría de negocio, como en el formulario del Excel.')
+      return
+    }
+    if (form.business === 'OTRO' && !form.businessDetail.trim()) {
+      setMovementFormError('Escribe la categoría del negocio.')
       return
     }
     const quantityValue = Number(form.quantity)
@@ -557,7 +569,7 @@ function ValidationCreditView() {
       total: form.type === 'CREDITO' ? total : 0,
       payment_amount: form.type === 'ABONO' ? paymentAmount : 0,
       balance_after: balanceAfter,
-      business: form.business,
+      business: form.business === 'OTRO' ? form.businessDetail.trim() : form.business,
     }
     setIsSavingMovement(true)
     try {
@@ -603,6 +615,20 @@ function ValidationCreditView() {
     }
   }
 
+  async function downloadMovementPdf(person: ValidationCreditPerson, row: ValidationCreditPerson['transactions'][number]) {
+    setMovementActionError('')
+    try {
+      await downloadValidationCreditReceipt(person, row)
+    } catch (error) {
+      setMovementActionError('No se pudo generar el PDF. ' + (error instanceof Error ? error.message : 'Error desconocido.'))
+    }
+  }
+
+  const creditProducts = data.INVENTARIO_PT
+    .filter((product) => String(product.CODIGO ?? '').trim())
+    .slice()
+    .sort((a, b) => String(a.CODIGO).localeCompare(String(b.CODIGO), 'es'))
+
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Migración del archivo CREDITOS (2).xlsm con personas, compras, abonos y saldos pendientes por hoja.</p></div><button className="primary-button" type="button" onClick={() => openMovementForm()}><span className="plus">+</span> Registrar crédito o abono</button></div>
     {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
@@ -641,9 +667,10 @@ function ValidationCreditView() {
                 <td colSpan={6} style={{ background: '#f7faf8', padding: '16px 18px' }}>
                   <div style={{ display: 'grid', gap: '12px' }}>
                     <div className="validation-credit-person-heading"><strong>Ficha de {person.name}</strong><button className="small-action" type="button" onClick={() => openMovementForm(person.sheet)}>Registrar crédito o abono</button></div>
-                    <div className="table-wrap"><table>
+                    <p className="validation-credit-actions-hint">En Acciones puedes descargar el comprobante PDF. Los movimientos nuevos también tienen botón Eliminar; el historial importado se conserva.</p>
+                    <div className="table-wrap validation-credit-history-wrap"><table className="validation-credit-history-table">
                       <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Acciones</th></tr></thead>
-                      <tbody>{person.transactions.slice(-8).map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td>{row.savedMovementId ? <button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button> : '—'}</td></tr>)}</tbody>
+                      <tbody>{person.transactions.slice(-8).map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td className="validation-credit-actions-cell"><div className="validation-credit-row-actions"><button className="small-action" type="button" onClick={() => void downloadMovementPdf(person, row)} aria-label={`Descargar PDF de ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Descargar comprobante PDF">PDF</button>{row.savedMovementId ? <button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button> : <span className="validation-credit-imported-badge">Excel</span>}</div></td></tr>)}</tbody>
                     </table></div>
                   </div>
                 </td>
@@ -662,15 +689,29 @@ function ValidationCreditView() {
         </div>
         <fieldset className="validation-credit-type"><legend>Tipo de movimiento</legend><label><input type="radio" name="validation-credit-type" checked={form.type === 'CREDITO'} onChange={() => setForm((current) => ({ ...current, type: 'CREDITO' }))} /> Crédito</label><label><input type="radio" name="validation-credit-type" checked={form.type === 'ABONO'} onChange={() => setForm((current) => ({ ...current, type: 'ABONO' }))} /> Abono</label></fieldset>
         {form.type === 'CREDITO' ? <div className="validation-credit-form-grid">
-          <label>Código<input required value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} /></label>
+          <label>Código del inventario<select required value={form.customCode ? customCreditCodeOption : form.code} onChange={(event) => {
+            const value = event.target.value
+            const product = creditProducts.find((item) => String(item.CODIGO) === value)
+            setForm((current) => ({
+              ...current,
+              customCode: value === customCreditCodeOption,
+              code: value === customCreditCodeOption ? '' : value,
+              detail: product ? String(product.DETALLE ?? '') : value === customCreditCodeOption ? '' : current.detail,
+              quantity: product ? '1' : current.quantity,
+              unitValue: product ? String(product.PRECIO ?? '') : value === customCreditCodeOption ? '' : current.unitValue,
+            }))
+          }}><option value="">Selecciona un código</option>{creditProducts.map((product) => <option key={String(product.CODIGO)} value={String(product.CODIGO)}>{product.CODIGO} · {product.DETALLE}</option>)}<option value={customCreditCodeOption}>Otro código (escribir)</option></select></label>
+          {form.customCode && <label>Código personalizado<input required value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} /></label>}
           <label>Descripción<input required value={form.detail} onChange={(event) => setForm((current) => ({ ...current, detail: event.target.value }))} /></label>
           <label>Cantidad<input required type="number" min="0.01" step="any" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
           <label>Valor unitario<input required type="number" min="1" step="1" value={form.unitValue} onChange={(event) => setForm((current) => ({ ...current, unitValue: event.target.value }))} /></label>
           <label>Descuento<input type="number" min="0" step="1" value={form.discount} onChange={(event) => setForm((current) => ({ ...current, discount: event.target.value }))} /></label>
-          <label>Categoría de negocio<select required value={form.business} onChange={(event) => setForm((current) => ({ ...current, business: event.target.value }))}><option value="">Selecciona negocio</option>{validationCreditBusinesses.map((business) => <option key={business} value={business}>{business}</option>)}</select></label>
+          <label>Categoría de negocio<select required value={form.business} onChange={(event) => setForm((current) => ({ ...current, business: event.target.value, businessDetail: '' }))}><option value="">Selecciona negocio</option>{validationCreditBusinesses.map((business) => <option key={business} value={business}>{business === 'OTRO' ? 'Otro' : business}</option>)}</select></label>
+          {form.business === 'OTRO' && <label>Escribe la categoría<input required value={form.businessDetail} onChange={(event) => setForm((current) => ({ ...current, businessDetail: event.target.value }))} placeholder="Nombre de la categoría" /></label>}
         </div> : <div className="validation-credit-form-grid">
           <label>Valor del abono<input required type="number" min="1" step="1" value={form.paymentAmount} onChange={(event) => setForm((current) => ({ ...current, paymentAmount: event.target.value }))} /></label>
-          <label>Categoría de negocio<select required value={form.business} onChange={(event) => setForm((current) => ({ ...current, business: event.target.value }))}><option value="">Selecciona negocio</option>{validationCreditBusinesses.map((business) => <option key={business} value={business}>{business}</option>)}</select></label>
+          <label>Categoría de negocio<select required value={form.business} onChange={(event) => setForm((current) => ({ ...current, business: event.target.value, businessDetail: '' }))}><option value="">Selecciona negocio</option>{validationCreditBusinesses.map((business) => <option key={business} value={business}>{business === 'OTRO' ? 'Otro' : business}</option>)}</select></label>
+          {form.business === 'OTRO' && <label>Escribe la categoría<input required value={form.businessDetail} onChange={(event) => setForm((current) => ({ ...current, businessDetail: event.target.value }))} placeholder="Nombre de la categoría" /></label>}
         </div>}
         <div className="validation-credit-balance-preview"><span>{form.type === 'CREDITO' ? 'Total de la compra' : 'Saldo después del abono'}</span><strong>{currency.format(form.type === 'CREDITO' ? purchaseTotal : balanceAfter)}</strong><small>Saldo anterior: {currency.format(selectedPerson?.saldoPendiente ?? 0)} · Nuevo saldo: {currency.format(balanceAfter)}</small></div>
         {movementFormError && <p className="form-error" role="alert">{movementFormError}</p>}

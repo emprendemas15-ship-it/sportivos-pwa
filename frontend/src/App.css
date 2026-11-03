@@ -163,6 +163,16 @@
  .validation-credit-notice, .validation-credit-loading { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #cfe2d3; border-radius: 7px; color: #2d704a; background: #f0f9f1; font-size: 11px; }
 .validation-credit-loading { border-color: #e6ece7; color: #748278; background: #fff; }
 .validation-credit-person-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.validation-credit-actions-hint { margin: -4px 0 0; color: #718077; font-size: 11px; line-height: 1.5; }
+.validation-credit-history-wrap { max-height: 440px; max-width: calc(100vw - 66px); }
+@media (min-width: 761px) { .validation-credit-history-wrap { max-width: calc(100vw - 372px); } }
+.validation-credit-history-table { min-width: 930px; }
+.validation-credit-history-table th:last-child, .validation-credit-history-table td:last-child { position: sticky; right: 0; z-index: 1; background: #fff; box-shadow: -5px 0 8px #1a34200d; }
+.validation-credit-history-table thead th:last-child { z-index: 2; background: #f8faf8; }
+.validation-credit-row-actions { display: flex; align-items: center; gap: 7px; }
+.validation-credit-row-actions .small-action { min-height: 32px; padding: 0 11px; color: #2e6946; font-size: 11px; }
+.validation-credit-row-actions .delete-button { min-height: 32px; }
+.validation-credit-imported-badge { color: #86938a; font-size: 10px; }
 .validation-credit-modal { width: min(100%, 680px); }
 .validation-credit-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .validation-credit-form-grid label { display: grid; min-width: 0; gap: 6px; color: #58675e; font-size: 11px; font-weight: 700; }

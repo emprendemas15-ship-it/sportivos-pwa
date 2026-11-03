@@ -4,7 +4,7 @@ Aplicación web progresiva basada en las hojas visibles de `SPORTIVOS (1) (1).xl
 
 También se incorporó el módulo `VALIDACION CREDITOS`, alimentado por `CREDITOS (2).xlsm`, con migración por persona, compras, abonos, saldos pendientes y detalle individual por cliente. La auditoría de hojas, formularios, columnas y cálculos está en [docs/excel-audit.md](./docs/excel-audit.md).
 
-La ficha conserva el historial importado y permite agregar o eliminar créditos y abonos por persona. Los movimientos nuevos se guardan aparte de la tabla del módulo `CREDITOS`, en `public.validacion_creditos_movimientos`; para habilitar el formulario y sus acciones, ejecuta una sola vez [la migración de Supabase](./supabase/migrations/20261102173000_validacion_creditos_movimientos.sql) desde el SQL Editor del proyecto Supabase. Como la PWA es pública y no requiere inicio de sesión, esa tabla permite lectura, inserción y eliminación públicas.
+La ficha conserva el historial importado y permite agregar o eliminar créditos y abonos por persona, descargar un comprobante PDF por movimiento y seleccionar códigos del inventario. Los movimientos nuevos se guardan aparte de la tabla del módulo `CREDITOS`, en `public.validacion_creditos_movimientos`; para habilitar el formulario y sus acciones, ejecuta una sola vez [la migración de Supabase](./supabase/migrations/20261102173000_validacion_creditos_movimientos.sql) desde el SQL Editor del proyecto Supabase. Como la PWA es pública y no requiere inicio de sesión, esa tabla permite lectura, inserción y eliminación públicas.
 
 ## Desarrollo y validación
 
