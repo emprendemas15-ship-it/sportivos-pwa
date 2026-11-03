@@ -788,6 +788,7 @@ function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, Workbook
     <section className="menu-card home-module-menu"><div className="section-heading"><div><h2>HOJAS Y FORMULARIOS</h2><p>Acceso directo a cada modulo visible del archivo original.</p></div></div>
       <div className="module-grid">{menuItems.filter((item) => item.key !== 'MENU').map((item) => <button key={item.key} className="module-tile" type="button" onClick={() => onNavigate(item.key)}><span className="tile-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.key === 'BALANCE' ? 'Historial mensual' : item.key === 'VALIDACION_CREDITOS' ? `${getValidationCreditSummary().totalPersonas} personas` : `${data[item.key as ModuleKey].length} registros`}</small></span><span className="tile-arrow">-&gt;</span></button>)}</div>
     </section>
+    <BalanceRecommendation balances={balances} />
   </section>
 }
 
@@ -899,6 +900,50 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
         })}
       </svg>
     </div>}
+  </section>
+}
+
+function BalanceRecommendation({ balances }: { balances: MonthlyBalance[] }) {
+  const report = balances[balances.length - 1]
+  if (!report) return null
+
+  const profit = report.totalCollections - report.totalExpenses
+  const margin = report.totalCollections > 0 ? profit / report.totalCollections * 100 : null
+  const expenseBreakdown = [
+    { label: 'costos de producción', amount: report.productionCosts, action: 'cotiza insumos con varios proveedores y registra la merma para evitar compras más caras de lo necesario' },
+    { label: 'compras y costos no producidos', amount: report.nonProducedCosts, action: 'revisa la rotación del inventario y compra solo lo que el movimiento de ventas justifique' },
+    { label: 'gastos operativos', amount: report.operatingExpenses, action: 'define un tope semanal y separa los gastos indispensables de los que pueden esperar' },
+    { label: 'reembolsos por devoluciones', amount: report.refunds, action: 'identifica los motivos de devolución y corrige primero los productos o procesos que más se repiten' },
+  ]
+  const largestExpense = expenseBreakdown.reduce((largest, item) => item.amount > largest.amount ? item : largest, { label: '', amount: 0, action: '' })
+  const expenseShare = report.totalExpenses > 0 ? largestExpense.amount / report.totalExpenses * 100 : 0
+  const status = profit > 0 ? 'Utilidad' : profit < 0 ? 'Pérdida' : report.totalCollections > 0 ? 'Punto de equilibrio' : 'Sin resultado registrado'
+  const summary = profit > 0
+    ? `El negocio sí dejó utilidad: el recaudo fue ${currency.format(report.totalCollections)} y los egresos ${currency.format(report.totalExpenses)}. Quedaron ${currency.format(profit)} (${margin === null ? '0' : number.format(margin)}% del recaudo).`
+    : profit < 0
+      ? `El mes cerró con pérdida de ${currency.format(Math.abs(profit))}: los egresos (${currency.format(report.totalExpenses)}) superaron el recaudo (${currency.format(report.totalCollections)}).`
+      : report.totalCollections > 0
+        ? `El mes quedó en punto de equilibrio: el recaudo de ${currency.format(report.totalCollections)} apenas cubrió los egresos. No se registró utilidad para reinvertir.`
+        : 'No hay recaudo ni egresos registrados en este balance; verifica que las ventas y los gastos del período estén completos.'
+  const reason = largestExpense.amount > 0
+    ? `El rubro más alto fue ${largestExpense.label}: ${currency.format(largestExpense.amount)}, equivalente al ${number.format(expenseShare)}% de los egresos.`
+    : report.totalCollections === 0 && report.totalExpenses > 0
+      ? 'La pérdida se explica por egresos registrados sin recaudo en el período.'
+      : 'No hay un rubro de egreso dominante en los datos guardados.'
+  const nextStep = profit < 0
+    ? largestExpense.amount > 0
+      ? `Para el próximo mes, ${largestExpense.action}. Revisa también la cartera pendiente (${currency.format(report.receivables)}) y programa seguimiento de cobros cada semana.`
+      : `Para el próximo mes, registra todo el recaudo y cada gasto; antes de asumir nuevos costos, revisa la cartera pendiente (${currency.format(report.receivables)}) y programa cobros semanales.`
+    : profit === 0
+      ? `Para el próximo mes, busca que el recaudo supere los egresos: ${largestExpense.amount > 0 ? largestExpense.action : 'confirma que todos los movimientos estén registrados'} y revisa el resultado semanalmente.`
+      : `Para mejorar la utilidad sin frenar las ventas, ${largestExpense.amount > 0 ? largestExpense.action : 'mantén control semanal de gastos'}. Conserva el fondo para el siguiente mes (${currency.format(report.nextFund)}) antes de definir retiros adicionales.`
+
+  return <section className={`balance-recommendation ${profit < 0 ? 'is-loss' : profit > 0 ? 'is-profit' : 'is-neutral'}`} aria-label="Recomendación del balance mensual">
+    <div className="section-heading"><div><p className="eyebrow">LECTURA DEL BALANCE · {monthLabels[report.month - 1]} {report.year}</p><h2>Recomendación para el negocio</h2></div><span className="recommendation-status">{status}</span></div>
+    <p className="recommendation-summary">{summary}</p>
+    <p className="recommendation-reason"><strong>¿Qué influyó?</strong> {reason}</p>
+    <p className="recommendation-action"><strong>Qué hacer el próximo mes:</strong> {nextStep}</p>
+    <p className="recommendation-footnote">Lectura automática basada en el balance guardado y en los movimientos registrados.</p>
   </section>
 }
 
