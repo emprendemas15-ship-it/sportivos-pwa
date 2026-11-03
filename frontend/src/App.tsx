@@ -853,6 +853,14 @@ function BalanceTrend({ balances }: { balances: MonthlyBalance[] }) {
 }
 
 function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
+  const [isCompact, setIsCompact] = useState(() => typeof window !== 'undefined' && window.matchMedia('(max-width: 560px)').matches)
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 560px)')
+    const update = () => setIsCompact(media.matches)
+    update()
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
   const latest = balances.slice(-6)
   const values = latest.map((item) => item.totalCollections - item.totalExpenses)
   const min = Math.min(0, ...values)
@@ -861,14 +869,14 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
   const padding = range * 0.12
   const chartMin = min - padding
   const chartMax = max + padding
-  const chartWidth = 780
+  const chartWidth = isCompact ? 420 : 780
   const chartHeight = 220
-  const left = 96
-  const right = 28
+  const left = isCompact ? 60 : 96
+  const right = isCompact ? 20 : 28
   const top = 36
   const bottom = 178
   const plotHeight = bottom - top
-  const monthSpacing = 108
+  const monthSpacing = isCompact ? 67 : 108
   const firstMonth = latest.length ? latest[0].year * 12 + latest[0].month : 0
   const lastMonth = latest.length ? latest[latest.length - 1].year * 12 + latest[latest.length - 1].month : 0
   const monthSpan = lastMonth - firstMonth
@@ -891,11 +899,20 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
         <polyline points={line} className="utility-chart-line" />
         {points.map(({ item, value, x, y }) => {
           const labelY = y < top + 28 ? y + 29 : y - 13
-          const label = `${monthLabels[item.month - 1]} ${item.year}`
+          const monthName = monthLabels[item.month - 1]
+          const label = `${monthName} ${item.year}`
+          const displayMonth = isCompact ? `${monthName.slice(0, 3)} '${String(item.year).slice(-2)}` : label
+          const displayValue = isCompact
+            ? Math.abs(value) >= 1000000
+              ? `$${number.format(value / 1000000)} M`
+              : Math.abs(value) >= 1000
+                ? `$${number.format(value / 1000)} mil`
+                : currency.format(value)
+            : currency.format(value)
           return <g key={`${item.year}-${item.month}`}>
             <circle cx={x} cy={y} r="5" className="utility-chart-point"><title>{`${label}: ${currency.format(value)}`}</title></circle>
-            <text x={x} y={labelY} textAnchor="middle" className="utility-chart-value">{currency.format(value)}</text>
-            <text x={x} y="202" textAnchor="middle" className="utility-chart-month">{monthLabels[item.month - 1]} {item.year}</text>
+            <text x={x} y={labelY} textAnchor="middle" className="utility-chart-value">{displayValue}</text>
+            <text x={x} y="202" textAnchor="middle" className="utility-chart-month">{displayMonth}</text>
           </g>
         })}
       </svg>
