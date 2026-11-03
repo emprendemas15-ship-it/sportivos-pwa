@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { downloadClientStatement, shareClientStatement } from './lib/client-statement'
-import { downloadValidationCreditReceipt } from './lib/validation-credit-receipt'
+import { downloadValidationCreditHistory } from './lib/validation-credit-history'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
 import { getValidationCreditSummary, mergeValidationCreditMovements, type SavedValidationCreditMovement, type ValidationCreditPerson } from './lib/credit-validation'
 
@@ -389,6 +389,10 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
   const [movementLoadError, setMovementLoadError] = useState('')
   const [isLoadingMovements, setIsLoadingMovements] = useState(true)
   const [showMovementForm, setShowMovementForm] = useState(false)
+  const [showHistoryPdfModal, setShowHistoryPdfModal] = useState(false)
+  const [historyPdfPersonSheet, setHistoryPdfPersonSheet] = useState('')
+  const [historyPdfError, setHistoryPdfError] = useState('')
+  const [isGeneratingHistoryPdf, setIsGeneratingHistoryPdf] = useState(false)
   const [isSavingMovement, setIsSavingMovement] = useState(false)
   const [movementFormError, setMovementFormError] = useState('')
   const [movementActionError, setMovementActionError] = useState('')
@@ -615,13 +619,29 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
     }
   }
 
-  async function downloadMovementPdf(person: ValidationCreditPerson, row: ValidationCreditPerson['transactions'][number]) {
-    setMovementActionError('')
-    try {
-      await downloadValidationCreditReceipt(person, row)
-    } catch (error) {
-      setMovementActionError('No se pudo generar el PDF. ' + (error instanceof Error ? error.message : 'Error desconocido.'))
+  async function generatePersonHistoryPdf() {
+    const person = allPeople.find((item) => item.sheet === historyPdfPersonSheet)
+    if (!person) {
+      setHistoryPdfError('Selecciona una persona para generar su historial.')
+      return
     }
+
+    setIsGeneratingHistoryPdf(true)
+    setHistoryPdfError('')
+    try {
+      await downloadValidationCreditHistory(person)
+      setShowHistoryPdfModal(false)
+    } catch (error) {
+      setHistoryPdfError('No se pudo generar el historial PDF. ' + (error instanceof Error ? error.message : 'Error desconocido.'))
+    } finally {
+      setIsGeneratingHistoryPdf(false)
+    }
+  }
+
+  function openHistoryPdfModal() {
+    setHistoryPdfPersonSheet('')
+    setHistoryPdfError('')
+    setShowHistoryPdfModal(true)
   }
 
   const creditProducts = data.INVENTARIO_PT
@@ -630,7 +650,7 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
     .sort((a, b) => String(a.CODIGO).localeCompare(String(b.CODIGO), 'es'))
 
   return <section className="page-content">
-    <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Migración del archivo CREDITOS (2).xlsm con personas, compras, abonos y saldos pendientes por hoja.</p></div><button className="primary-button" type="button" onClick={() => openMovementForm()}><span className="plus">+</span> Registrar crédito o abono</button></div>
+    <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Migración del archivo CREDITOS (2).xlsm con personas, compras, abonos y saldos pendientes por hoja.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button><button className="primary-button" type="button" onClick={() => openMovementForm()}><span className="plus">+</span> Registrar crédito o abono</button></div></div>
     {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
     {movementNotice && <p className="validation-credit-notice" role="status">{movementNotice}</p>}
     {movementActionError && <p className="form-error" role="alert">{movementActionError}</p>}
@@ -667,10 +687,10 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
                 <td colSpan={6} style={{ background: '#f7faf8', padding: '16px 18px' }}>
                   <div style={{ display: 'grid', gap: '12px' }}>
                     <div className="validation-credit-person-heading"><strong>Ficha de {person.name}</strong><button className="small-action" type="button" onClick={() => openMovementForm(person.sheet)}>Registrar crédito o abono</button></div>
-                    <p className="validation-credit-actions-hint">En Acciones puedes descargar el comprobante PDF. Los movimientos nuevos también tienen botón Eliminar; el historial importado se conserva.</p>
+                    <p className="validation-credit-actions-hint">Usa “Historial PDF” para descargar todos los movimientos de una persona. Los movimientos nuevos se pueden eliminar; el historial importado se conserva.</p>
                     <div className="table-wrap validation-credit-history-wrap"><table className="validation-credit-history-table">
                       <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Acciones</th></tr></thead>
-                      <tbody>{person.transactions.slice(-8).map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td className="validation-credit-actions-cell"><div className="validation-credit-row-actions"><button className="small-action" type="button" onClick={() => void downloadMovementPdf(person, row)} aria-label={`Descargar PDF de ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Descargar comprobante PDF">PDF</button>{row.savedMovementId ? <button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button> : <span className="validation-credit-imported-badge">Excel</span>}</div></td></tr>)}</tbody>
+                      <tbody>{person.transactions.slice(-8).map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td className="validation-credit-actions-cell"><div className="validation-credit-row-actions">{row.savedMovementId ? <button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button> : <span className="validation-credit-imported-badge">Excel</span>}</div></td></tr>)}</tbody>
                     </table></div>
                   </div>
                 </td>
@@ -680,6 +700,12 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
         </tbody>
       </table></div>
     </section>
+    {showHistoryPdfModal && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isGeneratingHistoryPdf) setShowHistoryPdfModal(false) }}><section className="modal validation-credit-history-modal" role="dialog" aria-modal="true" aria-labelledby="validation-credit-history-title">
+      <div className="modal-heading"><div><p className="eyebrow">REPORTE DE CARTERA</p><h2 id="validation-credit-history-title">Historial completo en PDF</h2><p>Selecciona una persona para incluir todos sus créditos y abonos registrados.</p></div><button className="close-button" type="button" onClick={() => setShowHistoryPdfModal(false)} aria-label="Cerrar" disabled={isGeneratingHistoryPdf}>×</button></div>
+      <label className="validation-credit-history-person">Persona<select required value={historyPdfPersonSheet} onChange={(event) => { setHistoryPdfPersonSheet(event.target.value); setHistoryPdfError('') }}><option value="">Selecciona una persona</option>{allPeople.map((person) => <option key={person.sheet} value={person.sheet}>{person.name}</option>)}</select></label>
+      {historyPdfError && <p className="form-error" role="alert">{historyPdfError}</p>}
+      <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => setShowHistoryPdfModal(false)} disabled={isGeneratingHistoryPdf}>Cancelar</button><button className="primary-button" type="button" onClick={() => void generatePersonHistoryPdf()} disabled={isGeneratingHistoryPdf || !historyPdfPersonSheet}>{isGeneratingHistoryPdf ? 'Generando PDF...' : 'Descargar historial completo'}</button></div>
+    </section></div>}
     {showMovementForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSavingMovement) setShowMovementForm(false) }}><section className="modal validation-credit-modal" role="dialog" aria-modal="true" aria-labelledby="validation-credit-form-title">
       <div className="modal-heading"><div><p className="eyebrow">REGISTRO DE CARTERA</p><h2 id="validation-credit-form-title">Crédito o abono</h2><p>Flujo basado en frmRegistroCredito del Excel.</p></div><button className="close-button" type="button" onClick={() => setShowMovementForm(false)} aria-label="Cerrar" disabled={isSavingMovement}>×</button></div>
       <form onSubmit={(event) => void saveValidationMovement(event)}>
