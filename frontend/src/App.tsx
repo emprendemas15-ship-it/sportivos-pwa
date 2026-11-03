@@ -867,9 +867,14 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
   const top = 36
   const bottom = 178
   const plotHeight = bottom - top
-  const xForIndex = (index: number) => latest.length === 1 ? (left + chartWidth - right) / 2 : left + index * (chartWidth - left - right) / (latest.length - 1)
+  const monthSpacing = 108
+  const firstMonth = latest.length ? latest[0].year * 12 + latest[0].month : 0
+  const lastMonth = latest.length ? latest[latest.length - 1].year * 12 + latest[latest.length - 1].month : 0
+  const monthSpan = lastMonth - firstMonth
+  const plotCenter = (left + chartWidth - right) / 2
+  const xForMonth = (item: MonthlyBalance) => plotCenter + (item.year * 12 + item.month - (firstMonth + monthSpan / 2)) * monthSpacing
   const yForValue = (value: number) => bottom - (value - chartMin) / (chartMax - chartMin) * plotHeight
-  const points = latest.map((item, index) => ({ item, value: item.totalCollections - item.totalExpenses, x: xForIndex(index), y: yForValue(item.totalCollections - item.totalExpenses) }))
+  const points = latest.map((item) => ({ item, value: item.totalCollections - item.totalExpenses, x: xForMonth(item), y: yForValue(item.totalCollections - item.totalExpenses) }))
   const line = points.map((point) => `${point.x},${point.y}`).join(' ')
   const axisLabel = (value: number) => value === 0 ? '$0' : `$${number.format(Math.round(value / 100000) / 10)} M`
 
