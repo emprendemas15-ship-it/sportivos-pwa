@@ -90,33 +90,38 @@ export function mergeValidationCreditMovements(movements: SavedValidationCreditM
 
   return validationCreditPortfolio.map((person) => {
     const additions = (grouped.get(person.sheet) ?? []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at))
+    const recordedBalance = [...person.transactions].reverse().find((transaction) => transaction.tieneDebe)?.debe
+    const openingBalance = recordedBalance ?? person.saldoPendiente
+    let runningBalance = openingBalance
     const addedPurchases = additions.filter((movement) => movement.movement_type === 'CREDITO').reduce((total, movement) => total + movement.total, 0)
     const addedPayments = additions.filter((movement) => movement.movement_type === 'ABONO').reduce((total, movement) => total + movement.payment_amount, 0)
     const addedDiscounts = additions.reduce((total, movement) => total + movement.discount, 0)
-    const addedTransactions: ValidationCreditTransaction[] = additions.map((movement) => ({
-      savedMovementId: movement.id,
-      fecha: movement.movement_date,
-      codigo: movement.code,
-      detalle: movement.detail,
-      cantidad: movement.quantity,
-      valor: movement.unit_value,
-      descuento: movement.discount,
-      total: movement.total,
-      abona: movement.payment_amount,
-      debe: movement.balance_after,
-      tieneDebe: true,
-      negocio: movement.business,
-      tipo: movement.movement_type === 'ABONO' ? 'ABONO' : 'COMPRA',
-    }))
+    const addedTransactions: ValidationCreditTransaction[] = additions.map((movement) => {
+      const isPayment = movement.movement_type === 'ABONO'
+      runningBalance += isPayment ? -movement.payment_amount : movement.total
+      return {
+        savedMovementId: movement.id,
+        fecha: movement.movement_date,
+        codigo: movement.code,
+        detalle: movement.detail,
+        cantidad: movement.quantity,
+        valor: movement.unit_value,
+        descuento: movement.discount,
+        total: movement.total,
+        abona: movement.payment_amount,
+        debe: runningBalance,
+        tieneDebe: true,
+        negocio: movement.business,
+        tipo: isPayment ? 'ABONO' : 'COMPRA',
+      }
+    })
     const latestAddition = additions.reduce<string | null>((latest, movement) => {
       return !latest || movement.movement_date > latest ? movement.movement_date : latest
     }, null)
     const ultimoMovimiento = latestAddition && (!person.ultimoMovimiento || latestAddition > person.ultimoMovimiento)
       ? latestAddition
       : person.ultimoMovimiento
-    const recordedBalance = [...person.transactions].reverse().find((transaction) => transaction.tieneDebe)?.debe
-    const openingBalance = recordedBalance ?? person.saldoPendiente
-    const saldoPendiente = openingBalance + addedPurchases - addedPayments
+    const saldoPendiente = runningBalance
 
     return {
       ...person,

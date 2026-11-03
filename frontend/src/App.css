@@ -163,16 +163,17 @@
  .validation-credit-notice, .validation-credit-loading { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #cfe2d3; border-radius: 7px; color: #2d704a; background: #f0f9f1; font-size: 11px; }
 .validation-credit-loading { border-color: #e6ece7; color: #748278; background: #fff; }
 .validation-credit-person-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.validation-credit-person-details { display: grid; min-width: 0; gap: 12px; padding: 16px 18px; border-top: 1px solid #edf0ed; background: #f7faf8; }
 .validation-credit-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 9px; }
 .validation-credit-heading-actions > button { white-space: nowrap; }
 .validation-credit-history-modal { width: min(100%, 560px); }
 .validation-credit-history-person { display: grid; gap: 7px; color: #58675e; font-size: 11px; font-weight: 700; }
 .validation-credit-history-person select { width: 100%; height: 42px; padding: 0 10px; border: 1px solid #dfe7df; border-radius: 6px; color: #34463a; background: #fff; font: inherit; font-size: 12px; }
 .validation-credit-actions-hint { margin: -4px 0 0; color: #718077; font-size: 11px; line-height: 1.5; }
-.validation-credit-history-wrap { max-height: 440px; max-width: calc(100vw - 66px); }
+.validation-credit-history-wrap { max-height: none; max-width: calc(100vw - 66px); }
 @media (min-width: 761px) { .validation-credit-history-wrap { max-width: calc(100vw - 372px); } }
-.validation-credit-history-table { min-width: 930px; }
-.validation-credit-history-table-no-actions { min-width: 810px; }
+.validation-credit-history-table { min-width: 1030px; }
+.validation-credit-history-table-no-actions { min-width: 910px; }
 .validation-credit-history-table:not(.validation-credit-history-table-no-actions) th:last-child, .validation-credit-history-table:not(.validation-credit-history-table-no-actions) td:last-child { position: sticky; right: 0; z-index: 1; background: #fff; box-shadow: -5px 0 8px #1a34200d; }
 .validation-credit-history-table:not(.validation-credit-history-table-no-actions) thead th:last-child { z-index: 2; background: #f8faf8; }
 .validation-credit-row-actions { display: flex; align-items: center; gap: 7px; }
