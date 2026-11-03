@@ -674,6 +674,8 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
         <tbody>
           {people.length === 0 ? <tr><td colSpan={6} className="empty-state"><strong>Sin coincidencias</strong><span>No aparecen personas con ese filtro.</span></td></tr> : people.map((person) => {
             const isSelected = selected === person.sheet
+            const recentTransactions = person.transactions.slice(-8)
+            const hasSavedRecentMovements = recentTransactions.some((transaction) => transaction.savedMovementId)
             return <Fragment key={person.sheet}>
               <tr className={isSelected ? 'selected-row' : ''} onClick={() => setSelected(isSelected ? null : person.sheet)} style={{ cursor: 'pointer' }}>
                 <td>{person.name}</td>
@@ -688,9 +690,9 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
                   <div style={{ display: 'grid', gap: '12px' }}>
                     <div className="validation-credit-person-heading"><strong>Ficha de {person.name}</strong><button className="small-action" type="button" onClick={() => openMovementForm(person.sheet)}>Registrar crédito o abono</button></div>
                     <p className="validation-credit-actions-hint">Usa “Historial PDF” para descargar todos los movimientos de una persona. Los movimientos nuevos se pueden eliminar; el historial importado se conserva.</p>
-                    <div className="table-wrap validation-credit-history-wrap"><table className="validation-credit-history-table">
-                      <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Acciones</th></tr></thead>
-                      <tbody>{person.transactions.slice(-8).map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td className="validation-credit-actions-cell"><div className="validation-credit-row-actions">{row.savedMovementId ? <button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button> : <span className="validation-credit-imported-badge">Excel</span>}</div></td></tr>)}</tbody>
+                    <div className="table-wrap validation-credit-history-wrap"><table className={`validation-credit-history-table${hasSavedRecentMovements ? '' : ' validation-credit-history-table-no-actions'}`}>
+                      <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th>{hasSavedRecentMovements && <th>Acciones</th>}</tr></thead>
+                      <tbody>{recentTransactions.map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td>{hasSavedRecentMovements && <td className="validation-credit-actions-cell">{row.savedMovementId && <div className="validation-credit-row-actions"><button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button></div>}</td>}</tr>)}</tbody>
                     </table></div>
                   </div>
                 </td>
