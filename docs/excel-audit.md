@@ -20,12 +20,14 @@ También quedaron fuera del proyecto las funcionalidades de cotizaciones, lista 
 
 - `INVENTARIO_PT` toma las entradas registradas, las ventas y los créditos.
 - El formulario de `INVENTARIO_PT` captura `CODIGO` y `DETALLE`; precio/costos y existencias son columnas calculadas. Solo se completa automáticamente la ficha de costos cuando el código existe en la hoja visible `COSTOS_NO_PRODUCIDOS`.
-- `VENTAS` calcula `TOTAL` con cantidad, precio y descuento, y deriva el mes desde la fecha.
-- `CREDITOS` registra créditos y abonos por cliente y calcula la deuda resultante.
+- `VENTAS` calcula `TOTAL` con cantidad, precio y descuento, deriva el mes desde la fecha y exige seleccionar el medio de pago.
+- `CREDITOS` registra créditos y abonos por cliente y calcula la deuda resultante. Un crédito aumenta la cartera y no es recaudo; los abonos sí reciben un medio de pago obligatorio. En las devoluciones, se exige cuando hay que entregar un reembolso.
 - `GASTOS` captura solo fecha, detalle y valor. Los registros antiguos muestran el detalle desde `COMENTARIOS` o `CODIGO_MP` si `DETALLE` está vacío; cuando el detalle coincide con el código o nombre de un producto de `COSTOS_NO_PRODUCIDOS`, se conserva la clasificación del balance sin pedir campos adicionales.
 - `BALANCE` conserva un resumen por mes. Septiembre se carga como histórico y cada nuevo periodo guardado se agrega en el mismo módulo.
 - Los formularios respetan los campos necesarios de cada hoja y las tablas ocultan la columna auxiliar `Columna1`. En `ENTRADAS`, el total calculado (`CANTIDAD × PRECIO`) se muestra como `VALOR DEL PRODUCTO`, sin exponer el nombre técnico de la columna del Excel. Las demás columnas calculadas incluyen saldo neto de CLIENTES, valor/deuda/mes de CREDITOS, total/mes de VENTAS y costo total/margen de COSTOS_NO_PRODUCIDOS.
 - `COSTOS_NO_PRODUCIDOS` conserva los costos de productos comprados o no producidos.
+- `BALANCE` suma ventas y abonos en efectivo, transferencias y otros medios. El módulo independiente `VALIDACION_CREDITOS` no modifica este balance.
+- Los formularios bloquean cantidades y valores no positivos cuando corresponda, descuentos negativos o superiores al subtotal, y parámetros de balance fuera de rango antes de guardar.
 
 ## Datos cargados
 

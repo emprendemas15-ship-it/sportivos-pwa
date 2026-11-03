@@ -80,6 +80,17 @@
 @media (max-width: 560px) { .quantity-preview { grid-template-columns: 1fr; } }
 
 .balance-trend { overflow: hidden; margin: 0 0 19px; border: 1px solid #e7ece7; border-radius: 10px; background: #fff; box-shadow: 0 2px 6px #173a250d; }
+.utility-trend { overflow: hidden; margin: 0 0 19px; border: 1px solid #dfe9e1; border-radius: 10px; background: linear-gradient(135deg, #fff 0%, #f8fcf8 100%); box-shadow: 0 2px 6px #173a250d; }
+.utility-trend .section-heading { padding-bottom: 4px; }
+.utility-trend .section-heading h2 { font-size: 15px; }
+.utility-chart-wrap { width: 100%; overflow-x: auto; padding: 0 16px 10px; box-sizing: border-box; }
+.utility-chart { display: block; width: 100%; min-width: 520px; height: auto; }
+.utility-chart-gridline { stroke: #e9efea; stroke-width: 1; }
+.utility-chart-axis { fill: #8a978f; font-size: 10px; }
+.utility-chart-line { fill: none; stroke: #23804e; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.utility-chart-point { fill: #fff; stroke: #23804e; stroke-width: 3; }
+.utility-chart-value { fill: #1d5d39; font-size: 12px; font-weight: 800; }
+.utility-chart-month { fill: #68786e; font-size: 10px; font-weight: 600; }
 .balance-trend .section-heading { padding-bottom: 8px; }
 .balance-trend-empty { padding: 18px 20px 22px; color: #89978e; font-size: 12px; line-height: 1.6; }
 .balance-chart-wrap { width: 100%; overflow-x: auto; padding: 3px 17px 0; }
@@ -193,6 +204,36 @@
 .validation-credit-balance-preview strong { color: #214c35; font-size: 19px; }
 .validation-credit-balance-preview small { color: #78877d; font-size: 10px; }
 .validation-credit-modal .modal-actions .primary-button:disabled { opacity: .6; cursor: not-allowed; }
+.credit-record-row { cursor: default; }
+.credit-action-cell { white-space: nowrap; }
+@media (max-width: 1280px) {
+  .credit-catalog-card { overflow: visible; }
+  .credit-catalog-header { align-items: stretch; flex-direction: column; gap: 15px; }
+  .credit-catalog-card .credit-filters { width: 100%; max-width: none; }
+  .credits-table { display: block; width: 100%; }
+  .credits-table thead { display: none; }
+  .credits-table tbody { display: grid; gap: 11px; padding: 0 14px 14px; }
+  .credits-table .credit-record-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; border: 1px solid #e6ece7; border-radius: 9px; background: #fff; box-shadow: 0 2px 6px #173a2508; }
+  .credits-table .credit-record-row:hover { background: #fbfdfb; }
+  .credits-table .credit-record-row td { display: grid; min-width: 0; height: auto; align-content: start; gap: 4px; padding: 9px 5px; border: 0; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+  .credits-table .credit-record-row td::before { color: #89978e; content: attr(data-credit-label); font-size: 9px; font-weight: 650; letter-spacing: .25px; }
+  .credits-table .credit-record-row [data-credit-field="FECHA"] { order: 1; }
+  .credits-table .credit-record-row [data-credit-field="NOMBRE"] { order: 2; grid-column: 1 / -1; color: #243d30; font-size: 14px; font-weight: 750; }
+  .credits-table .credit-record-row [data-credit-field="TIPO"] { order: 3; }
+  .credits-table .credit-record-row [data-credit-field="VALOR"] { order: 4; color: #214c35; font-size: 14px; font-weight: 750; }
+  .credits-table .credit-record-row [data-credit-field="DEUDA"] { order: 5; color: #214c35; font-weight: 700; }
+  .credits-table .credit-record-row [data-credit-field="MEDIO PAGO"] { order: 6; }
+  .credits-table .credit-record-row [data-credit-field="DETALLE"] { order: 7; }
+  .credits-table .credit-record-row [data-credit-field="CODIGO"] { order: 8; }
+  .credits-table .credit-record-row [data-credit-field="CANT"] { order: 9; }
+  .credits-table .credit-record-row [data-credit-field="PRECIO"] { order: 10; }
+  .credits-table .credit-record-row [data-credit-field="DESCUENTO"] { order: 11; }
+  .credits-table .credit-record-row [data-credit-field="COMENTARIO"] { order: 12; }
+  .credits-table .credit-record-row [data-credit-field="MES"] { order: 13; }
+  .credits-table .credit-record-row .credit-action-cell { order: 14; grid-column: 1 / -1; justify-content: flex-end; margin-top: 5px; padding-top: 11px; border-top: 1px solid #edf1ed; }
+  .credits-table .credit-record-row .credit-action-cell::before { display: none; }
+  .credits-table .empty-state { display: grid; grid-template-columns: minmax(0, 1fr); height: 130px; }
+}
 @media (max-width: 560px) {
   .validation-credit-form-grid { grid-template-columns: 1fr; }
   .validation-credit-person-heading { align-items: flex-start; flex-direction: column; }

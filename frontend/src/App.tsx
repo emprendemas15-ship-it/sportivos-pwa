@@ -548,7 +548,7 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
         setMovementFormError('La cantidad y el valor deben ser mayores a cero.')
         return
       }
-      if (!Number.isFinite(discountAmount) || discountAmount < 0 || total <= 0) {
+      if (!Number.isFinite(discountAmount) || discountAmount < 0 || !Number.isFinite(total) || total <= 0) {
         setMovementFormError('El descuento no puede ser negativo ni superar el valor de la compra.')
         return
       }
@@ -676,15 +676,15 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
             const hasSavedRecentMovements = recentTransactions.some((transaction) => transaction.savedMovementId)
             const isSelected = selected === person.sheet
             return <Fragment key={person.sheet}>
-              <tr className={isSelected ? 'selected-row' : ''} onClick={() => setSelected(isSelected ? null : person.sheet)} style={{ cursor: 'pointer' }}>
-                <td>{person.name}</td>
-                <td>{currency.format(person.saldoPendiente)}</td>
-                <td>{currency.format(person.totalCompras)}</td>
-                <td>{currency.format(person.totalAbonos)}</td>
-                <td>{person.ultimoMovimiento ? new Date(person.ultimoMovimiento + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
-                <td><span className={person.estado === 'PENDIENTE' ? 'status-pill pending' : 'status-pill ok'}>{person.estado === 'PENDIENTE' ? 'Pendiente' : 'Al día'}</span></td>
+              <tr className={`validation-credit-person-row${isSelected ? ' selected-row' : ''}`} onClick={() => setSelected(isSelected ? null : person.sheet)} style={{ cursor: 'pointer' }}>
+                <td data-label="Persona">{person.name}</td>
+                <td data-label="Saldo pendiente">{currency.format(person.saldoPendiente)}</td>
+                <td data-label="Total compras">{currency.format(person.totalCompras)}</td>
+                <td data-label="Total abonado">{currency.format(person.totalAbonos)}</td>
+                <td data-label="Último movimiento">{person.ultimoMovimiento ? new Date(person.ultimoMovimiento + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
+                <td data-label="Estado"><span className={person.estado === 'PENDIENTE' ? 'status-pill pending' : 'status-pill ok'}>{person.estado === 'PENDIENTE' ? 'Pendiente' : 'Al día'}</span></td>
               </tr>
-              {isSelected && <tr><td className="validation-credit-person-details-cell" colSpan={6}>
+              {isSelected && <tr className="validation-credit-person-details-row"><td className="validation-credit-person-details-cell" colSpan={6}>
                 <div className="validation-credit-person-details">
                   <div className="validation-credit-person-heading"><strong>Ficha de {person.name}</strong><button className="small-action" type="button" onClick={() => openMovementForm(person.sheet)}>Registrar crédito o abono</button></div>
                   <p className="validation-credit-actions-hint">Usa “Historial PDF” para descargar todos los movimientos de una persona. Los movimientos nuevos se pueden eliminar; el historial importado se conserva.</p>
@@ -783,6 +783,7 @@ function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, Workbook
       <SummaryCard label="Valor del stock" value={currency.format(metrics.stockValue)} note="Existencias actuales × costo unitario" tone="amber" />
       <SummaryCard label="Gastos registrados" value={currency.format(metrics.expenses)} note="Suma de VALOR en GASTOS" tone="rose" />
     </div>
+    <UtilityTrend balances={balances} />
     <BalanceTrend balances={balances} />
     <section className="menu-card home-module-menu"><div className="section-heading"><div><h2>HOJAS Y FORMULARIOS</h2><p>Acceso directo a cada modulo visible del archivo original.</p></div></div>
       <div className="module-grid">{menuItems.filter((item) => item.key !== 'MENU').map((item) => <button key={item.key} className="module-tile" type="button" onClick={() => onNavigate(item.key)}><span className="tile-icon">{item.icon}</span><span><strong>{item.label}</strong><small>{item.key === 'BALANCE' ? 'Historial mensual' : item.key === 'VALIDACION_CREDITOS' ? `${getValidationCreditSummary().totalPersonas} personas` : `${data[item.key as ModuleKey].length} registros`}</small></span><span className="tile-arrow">-&gt;</span></button>)}</div>
@@ -849,6 +850,53 @@ function BalanceTrend({ balances }: { balances: MonthlyBalance[] }) {
     </>}
   </section>
 }
+
+function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
+  const latest = balances.slice(-6)
+  const values = latest.map((item) => item.totalCollections - item.totalExpenses)
+  const min = Math.min(0, ...values)
+  const max = Math.max(0, ...values)
+  const range = max - min || 1
+  const padding = range * 0.12
+  const chartMin = min - padding
+  const chartMax = max + padding
+  const chartWidth = 780
+  const chartHeight = 220
+  const left = 96
+  const right = 28
+  const top = 36
+  const bottom = 178
+  const plotHeight = bottom - top
+  const xForIndex = (index: number) => latest.length === 1 ? (left + chartWidth - right) / 2 : left + index * (chartWidth - left - right) / (latest.length - 1)
+  const yForValue = (value: number) => bottom - (value - chartMin) / (chartMax - chartMin) * plotHeight
+  const points = latest.map((item, index) => ({ item, value: item.totalCollections - item.totalExpenses, x: xForIndex(index), y: yForValue(item.totalCollections - item.totalExpenses) }))
+  const line = points.map((point) => `${point.x},${point.y}`).join(' ')
+  const axisLabel = (value: number) => value === 0 ? '$0' : `$${number.format(Math.round(value / 100000) / 10)} M`
+
+  return <section className="utility-trend" aria-label="Utilidad mensual">
+    <div className="section-heading"><div><h2>Utilidad mensual</h2><p>Recaudo menos gastos, por mes</p></div></div>
+    {latest.length === 0 ? <div className="balance-trend-empty">Cuando guardes un balance mensual, aquí verás la utilidad de cada mes.</div> : <div className="utility-chart-wrap">
+      <svg className="utility-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Línea de utilidad mensual">
+        {[0, 0.5, 1].map((fraction) => {
+          const value = chartMin + (chartMax - chartMin) * fraction
+          const y = yForValue(value)
+          return <g key={fraction}><line x1={left} x2={chartWidth - right} y1={y} y2={y} className="utility-chart-gridline" /><text x={left - 12} y={y + 4} textAnchor="end" className="utility-chart-axis">{axisLabel(value)}</text></g>
+        })}
+        <polyline points={line} className="utility-chart-line" />
+        {points.map(({ item, value, x, y }) => {
+          const labelY = y < top + 28 ? y + 29 : y - 13
+          const label = `${monthLabels[item.month - 1]} ${item.year}`
+          return <g key={`${item.year}-${item.month}`}>
+            <circle cx={x} cy={y} r="5" className="utility-chart-point"><title>{`${label}: ${currency.format(value)}`}</title></circle>
+            <text x={x} y={labelY} textAnchor="middle" className="utility-chart-value">{currency.format(value)}</text>
+            <text x={x} y="202" textAnchor="middle" className="utility-chart-month">{monthLabels[item.month - 1]} {item.year}</text>
+          </g>
+        })}
+      </svg>
+    </div>}
+  </section>
+}
+
 function SummaryCard({ label, value, note, tone }: { label: string; value: string; note: string; tone: string }) {
   return <article className="summary-card"><div className="summary-top"><span>{label}</span><span className={'summary-icon ' + tone}>*</span></div><strong>{value}</strong><small>{note}</small></article>
 }
@@ -859,26 +907,26 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
   const canDelete = editableModules.has(module)
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">HOJA DEL LIBRO</p><h1>{module}</h1><p className="page-description">{moduleDescription(module)}</p></div>{editableModules.has(module) && <button className="primary-button" type="button" onClick={onNew}><span className="plus">+</span> Nuevo registro</button>}</div>
-    {isReport ? <ReportView data={data} /> : <section className="catalog-card">
-      <div className="catalog-header">
+    {isReport ? <ReportView data={data} /> : <section className={`catalog-card${module === 'CREDITOS' ? ' credit-catalog-card' : ''}`}>
+      <div className={`catalog-header${module === 'CREDITOS' ? ' credit-catalog-header' : ''}`}>
         <div><h2>{module}</h2><p>{columns.length} columnas - {rows.length} de {totalRows} registros{module === 'CREDITOS' ? ' - orden cronológico según los filtros' : ' - busqueda en todos los campos'}</p></div>
         {module === 'CREDITOS' ? <CreditFilterControls rows={data.CREDITOS} filters={creditFilters} onChange={onCreditFiltersChange} /> : <label className="search-box"><span>?</span><input aria-label={'Buscar en ' + module} value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Buscar en la hoja..." /><kbd>Ctrl K</kbd></label>}
       </div>
-      <div className="table-wrap"><table>
+      <div className="table-wrap"><table className={module === 'CREDITOS' ? 'credits-table' : undefined}>
         <thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{module === 'CLIENTES' && <><th>SALDO PENDIENTE</th><th>ESTADO DE CUENTA</th></>}{canDelete && <th>ACCIONES</th>}</tr></thead>
         <tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 2 : 0) + (canDelete ? 1 : 0)} className="empty-state"><strong>{module === 'CREDITOS' && totalRows > 0 ? 'No hay movimientos con esos filtros' : 'Sin registros'}</strong><span>{module === 'CREDITOS' && totalRows > 0 ? 'Prueba con otro nombre, tipo o rango de fechas.' : 'Usa Nuevo registro para capturar un dato.'}</span></td></tr> : rows.map((row, index) => {
           const clientName = String(row.NOMBRE ?? '').trim()
           const statementRows = getClientTransactions(data.CREDITOS, clientName)
           const recordKey = `${module}:${row.id ?? index}`
-          return <tr key={module + '-' + String(row.id ?? index)}>
+          return <tr key={module + '-' + String(row.id ?? index)} className={module === 'CREDITOS' ? 'credit-record-row' : undefined}>
             {columns.map((column) => {
               const value = module === 'GASTOS' && column.key === 'DETALLE'
                 ? String(row.DETALLE ?? '').trim() || String(row.COMENTARIOS ?? '').trim() || row.CODIGO_MP
                 : row[column.key]
-              return <td key={column.key}>{formatCell(value, column.key)}</td>
+              return <td key={column.key} data-credit-label={module === 'CREDITOS' ? column.label : undefined} data-credit-field={module === 'CREDITOS' ? column.key : undefined}>{formatCell(value, column.key)}</td>
             })}
             {module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => downloadClientStatement(clientName, statementRows)}>Descargar PDF</button><button type="button" className="small-action" onClick={() => void shareClientStatement(clientName, statementRows, onNotice)}>Compartir</button></div></td></>}
-            {canDelete && <td className="row-actions"><button type="button" className="delete-button" disabled={deletingRecord !== null} onClick={() => onDelete(module, row)} aria-label={`Borrar registro de ${module}`} title="Borrar registro">{deletingRecord === recordKey ? 'Borrando…' : 'Borrar'}</button></td>}
+            {canDelete && <td className={`row-actions${module === 'CREDITOS' ? ' credit-action-cell' : ''}`} data-credit-label={module === 'CREDITOS' ? 'Acciones' : undefined} data-credit-field={module === 'CREDITOS' ? 'ACCIONES' : undefined}><button type="button" className="delete-button" disabled={deletingRecord !== null} onClick={() => onDelete(module, row)} aria-label={`Borrar registro de ${module}`} title="Borrar registro">{deletingRecord === recordKey ? 'Borrando…' : 'Borrar'}</button></td>}
           </tr>
         })}</tbody>
       </table></div>
@@ -936,13 +984,13 @@ function CreditFilterControls({ rows, filters, onChange }: { rows: WorkbookRow[]
   </div>
 }
 
-type MonthlyBalance = { month: number; year: number; openingFund: number; cashSales: number; transferSales: number; totalCollections: number; availableCash: number; creditsGranted: number; payments: number; returns: number; refunds: number; receivables: number; productionCosts: number; nonProducedCosts: number; fixedCosts: number; operatingExpenses: number; totalExpenses: number; remainingCash: number; withdrawalRate: number; suggestedWithdrawal: number; nextFund: number }
+type MonthlyBalance = { month: number; year: number; openingFund: number; cashSales: number; transferSales: number; otherCollections: number; totalCollections: number; availableCash: number; creditsGranted: number; payments: number; returns: number; refunds: number; receivables: number; productionCosts: number; nonProducedCosts: number; fixedCosts: number; operatingExpenses: number; totalExpenses: number; remainingCash: number; withdrawalRate: number; suggestedWithdrawal: number; nextFund: number }
 const monthLabels = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-const septemberBalance: MonthlyBalance = { month: 9, year: 2026, openingFund: 1000000, cashSales: 543000, transferSales: 1989000, totalCollections: 2532000, availableCash: 3532000, creditsGranted: 1198000, payments: 2532000, returns: 0, refunds: 0, receivables: 5181000, productionCosts: 0, nonProducedCosts: 985000, fixedCosts: 9500, operatingExpenses: 108000, totalExpenses: 1093000, remainingCash: 2439000, withdrawalRate: 0.2, suggestedWithdrawal: 506400, nextFund: 1932600 }
+const septemberBalance: MonthlyBalance = { month: 9, year: 2026, openingFund: 1000000, cashSales: 543000, transferSales: 1989000, otherCollections: 0, totalCollections: 2532000, availableCash: 3532000, creditsGranted: 1198000, payments: 2532000, returns: 0, refunds: 0, receivables: 5181000, productionCosts: 0, nonProducedCosts: 985000, fixedCosts: 9500, operatingExpenses: 108000, totalExpenses: 1093000, remainingCash: 2439000, withdrawalRate: 0.2, suggestedWithdrawal: 506400, nextFund: 1932600 }
 function parseBalanceSnapshot(value: unknown): MonthlyBalance | null {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value
-    if (parsed && typeof parsed === 'object' && 'month' in parsed && 'year' in parsed && 'nextFund' in parsed) return { refunds: 0, ...parsed } as MonthlyBalance
+    if (parsed && typeof parsed === 'object' && 'month' in parsed && 'year' in parsed && 'nextFund' in parsed) return { refunds: 0, otherCollections: 0, ...parsed } as MonthlyBalance
   } catch { }
   return null
 }
@@ -963,7 +1011,7 @@ function toRemoteBalance(report: MonthlyBalance) {
     'Caja disponible incluyendo fondo anterior': report.availableCash,
     'Ventas registradas - efectivo': report.cashSales,
     'Ventas registradas - transferencias': report.transferSales,
-    'Ventas registradas - otros medios': 0,
+    'Ventas registradas - otros medios': report.otherCollections,
     'Total ventas registradas': report.totalCollections,
     'Créditos otorgados en el mes': report.creditsGranted,
     'Abonos cobrados en el mes': report.payments,
@@ -1001,9 +1049,11 @@ function calculateBalance(data: Record<ModuleKey, WorkbookRow[]>, month: number,
   const expenses = data.GASTOS.filter((row) => matchesPeriod(row, month, year))
   const entries = data.ENTRADAS.filter((row) => matchesPeriod(row, month, year))
   const sum = (items: WorkbookRow[], key: string) => items.reduce((total, row) => total + Number(row[key] ?? 0), 0)
-  const cashSales = sum(sales.filter((row) => String(row.MEDIO_DE_PAGO ?? '').toLowerCase().includes('efectivo')), 'TOTAL') + sum(credits.filter((row) => row.TIPO === 'Abono' && String(row['MEDIO PAGO'] ?? '').toLowerCase().includes('efectivo')), 'VALOR')
-  const transferSales = sum(sales.filter((row) => String(row.MEDIO_DE_PAGO ?? '').toLowerCase().includes('transfer')), 'TOTAL') + sum(credits.filter((row) => row.TIPO === 'Abono' && String(row['MEDIO PAGO'] ?? '').toLowerCase().includes('transfer')), 'VALOR')
-  const totalCollections = cashSales + transferSales
+  const paymentRows = [...sales.map((row) => ({ row, method: row.MEDIO_DE_PAGO, amountKey: 'TOTAL' })), ...credits.filter((row) => isAbonoType(row.TIPO)).map((row) => ({ row, method: row['MEDIO PAGO'], amountKey: 'VALOR' }))]
+  const cashSales = paymentRows.filter((item) => paymentCategory(item.method) === 'cash').reduce((total, item) => total + Number(item.row[item.amountKey] ?? 0), 0)
+  const transferSales = paymentRows.filter((item) => paymentCategory(item.method) === 'transfer').reduce((total, item) => total + Number(item.row[item.amountKey] ?? 0), 0)
+  const otherCollections = paymentRows.filter((item) => paymentCategory(item.method) === 'other').reduce((total, item) => total + Number(item.row[item.amountKey] ?? 0), 0)
+  const totalCollections = cashSales + transferSales + otherCollections
   const creditsGranted = sum(credits.filter((row) => isCreditType(row.TIPO)), 'VALOR')
   const payments = sum(credits.filter((row) => row.TIPO === 'Abono'), 'VALOR')
   const receivables = Math.max(0, data.CREDITOS.reduce((total, row) => total + (isCreditType(row.TIPO) ? Number(row.VALOR ?? 0) : isAbonoType(row.TIPO) || isReturnType(row.TIPO) ? -Number(row.VALOR ?? 0) : 0), 0))
@@ -1028,7 +1078,14 @@ function calculateBalance(data: Record<ModuleKey, WorkbookRow[]>, month: number,
   const suggestedWithdrawal = Math.round(totalCollections * withdrawalRate)
   const returns = credits.filter((row) => isReturnType(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0) + returnMarker(row.COMENTARIO).refund, 0)
   const remainingCash = openingFund + totalCollections - totalExpenses
-  return { month, year, openingFund, cashSales, transferSales, totalCollections, availableCash: openingFund + totalCollections, creditsGranted, payments, returns, refunds, receivables, productionCosts, nonProducedCosts, fixedCosts, operatingExpenses, totalExpenses, remainingCash, withdrawalRate, suggestedWithdrawal, nextFund: remainingCash - suggestedWithdrawal }
+  return { month, year, openingFund, cashSales, transferSales, otherCollections, totalCollections, availableCash: openingFund + totalCollections, creditsGranted, payments, returns, refunds, receivables, productionCosts, nonProducedCosts, fixedCosts, operatingExpenses, totalExpenses, remainingCash, withdrawalRate, suggestedWithdrawal, nextFund: remainingCash - suggestedWithdrawal }
+}
+function paymentCategory(value: CellValue | undefined): 'cash' | 'transfer' | 'other' | null {
+  const method = String(value ?? '').trim().toLocaleLowerCase()
+  if (!method) return null
+  if (method.includes('efectivo')) return 'cash'
+  if (method.includes('transfer')) return 'transfer'
+  return 'other'
 }
 function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
   const [month, setMonth] = useState(10)
@@ -1067,14 +1124,30 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
   const report = generated?.month === month && generated.year === year ? generated : calculateBalance(data, month, year, openingFund, withdrawalPercent / 100)
   const hasCurrentReport = generated?.month === month && generated.year === year
   const title = `ESTADO DE RESULTADOS Y FLUJO DE CAJA: ${monthLabels[month - 1]?.toUpperCase()} ${year}`
+  function balanceInputError() {
+    if (!Number.isInteger(month) || month < 1 || month > 12) return 'Selecciona un mes válido.'
+    if (!Number.isInteger(year) || year < 2000 || year > 2200) return 'El año debe estar entre 2000 y 2200.'
+    if (!Number.isFinite(openingFund) || openingFund < 0) return 'El fondo inicial no puede ser negativo.'
+    if (!Number.isFinite(withdrawalPercent) || withdrawalPercent < 0 || withdrawalPercent > 100) return 'El porcentaje de retiro debe estar entre 0 y 100.'
+    return ''
+  }
   function updatePeriod(nextMonth: number, nextYear: number) {
     setMonth(nextMonth); setYear(nextYear); setGenerated(null)
     const priorMonth = nextMonth === 1 ? 12 : nextMonth - 1; const priorYear = nextMonth === 1 ? nextYear - 1 : nextYear
     const prior = history.find((item) => item.month === priorMonth && item.year === priorYear)
     if (prior) setOpeningFund(prior.nextFund)
   }
-  function generate() { setGenerated(calculateBalance(data, month, year, openingFund, withdrawalPercent / 100)) }
+  function generate() {
+    const error = balanceInputError()
+    if (error) { window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: error })); return }
+    setGenerated(calculateBalance(data, month, year, openingFund, withdrawalPercent / 100))
+  }
   async function save() {
+    const inputError = balanceInputError()
+    if (inputError) {
+      window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: inputError }))
+      return
+    }
     if (!supabase) {
       reportWriteStatus(false, 'No hay conexión con la base compartida para guardar el balance.')
       window.dispatchEvent(new CustomEvent('sportivos:notice', { detail: 'No se guardó: falta conexión con la base compartida.' }))
@@ -1125,14 +1198,14 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
   }
   return <div className="balance-workspace"><section className="balance-controls"><label>Mes<select value={month} onChange={(event) => updatePeriod(Number(event.target.value), year)}>{monthLabels.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}</select></label><label>Año<input type="number" min="2000" max="2200" value={year} onChange={(event) => updatePeriod(month, Number(event.target.value))} /></label><label>Fondo mes anterior<input type="number" min="0" value={openingFund} onChange={(event) => { setOpeningFund(Number(event.target.value)); setGenerated(null) }} /></label><label>% retiro sugerido<input type="number" min="0" max="100" step="0.1" value={withdrawalPercent} onChange={(event) => { setWithdrawalPercent(Number(event.target.value)); setGenerated(null) }} /></label><div className="balance-actions"><button className="secondary-button" type="button" onClick={generate}>Generar balance</button><button className="primary-button" type="button" onClick={save}>Guardar balance</button></div></section>
     {hasCurrentReport ? <section className="excel-balance" aria-label="Balance mensual con formato del Excel"><div className="balance-sheet-top"><span><b>% Retiro Sugerido:</b> {number.format(report.withdrawalRate * 100)}%</span><span><b>Fondo Mes Anterior:</b> {currency.format(report.openingFund)}</span></div><h2 className="balance-sheet-title">{title}</h2>
-      <BalanceSection title="1. FLUJO DE CAJA Y DISPONIBILIDAD" rows={[["(+) Saldo / Fondo de Reserva Mes Anterior", report.openingFund], ["(+) Recaudo en Efectivo (Ventas + Abonos)", report.cashSales], ["(+) Recaudo en Transferencias (Ventas + Abonos)", report.transferSales], ["(=) Total Recaudo Generado Este Mes", report.totalCollections, 'gray'], ["(=) TOTAL CAJA DISPONIBLE", report.availableCash, 'blue']]} />
+      <BalanceSection title="1. FLUJO DE CAJA Y DISPONIBILIDAD" rows={[["(+) Saldo / Fondo de Reserva Mes Anterior", report.openingFund], ["(+) Recaudo en Efectivo (Ventas + Abonos)", report.cashSales], ["(+) Recaudo en Transferencias (Ventas + Abonos)", report.transferSales], ["(+) Recaudo en Otros medios (Ventas + Abonos)", report.otherCollections], ["(=) Total Recaudo Generado Este Mes", report.totalCollections, 'gray'], ["(=) TOTAL CAJA DISPONIBLE", report.availableCash, 'blue']]} />
       <BalanceSection title="2. CUENTAS POR COBRAR (CxC) - [INFORMATIVO]" rows={[["(+) Créditos Otorgados (Solo en este mes)", report.creditsGranted], ["(-) Abonos Recibidos (Solo en este mes)", report.payments], ["(-) Devoluciones Realizadas (Solo en este mes)", report.returns], ["(=) Saldo Total Pendiente de Cobro (Histórico)", report.receivables, 'gray']]} />
       <BalanceSection title="3. COSTOS Y GASTOS OPERATIVOS" rows={[["(-) Costos de Producción (Materia Prima)", report.productionCosts], ["(-) Costos No Producidos (Total Compras)", report.nonProducedCosts], ["    + De los cuales: Costos Fijos", report.fixedCosts], ["(-) Gastos Operativos (Viáticos)", report.operatingExpenses], ["(-) Reembolsos entregados por devoluciones", report.refunds], ["(=) TOTAL EGRESOS DEL MES", report.totalExpenses, 'peach'], ["(=) CAJA RESTANTE TRAS PAGAR EGRESOS", report.remainingCash, 'blue']]} />
       <BalanceSection title="4. RESULTADO FINANCIERO Y DISTRIBUCIÓN" rows={[["(+) Total Recaudo Generado Este Mes", report.totalCollections], [`(-) Retiro Sugerido (${number.format(report.withdrawalRate * 100)}% del Recaudo)`, report.suggestedWithdrawal, 'yellow'], ["(=) NUEVO FONDO / CAPITAL PRÓXIMO MES", report.nextFund, 'blue']]} />
       <p className="balance-before-withdrawal"><span>Dinero que debo tener antes del retiro:</span><strong>{currency.format(report.remainingCash)}</strong></p>
       <p className="balance-note">El balance incluye las compras registradas en ENTRADAS del mes. GASTOS se separa entre materia prima codificada y gastos operativos sin código.</p></section> : <section className="balance-empty"><strong>Balance sin generar</strong><span>Elige el mes y presiona “Generar balance” para ver el resumen; después puedes guardarlo.</span></section>}
     <section className="balance-history"><div className="section-heading"><div><h2>Balances guardados</h2><p>Los cierres quedan dentro de este mismo módulo, uno por mes.</p></div></div><div className="table-wrap"><table><thead><tr><th>PERIODO</th><th>FONDO INICIAL</th><th>TOTAL RECAUDO</th><th>RETIRO SUGERIDO</th><th>FONDO PRÓXIMO MES</th><th>ACCIONES</th></tr></thead><tbody>{history.map((item) => <tr key={`${item.year}-${item.month}`}><td>{monthLabels[item.month - 1]} {item.year}</td><td>{currency.format(item.openingFund)}</td><td>{currency.format(item.totalCollections)}</td><td>{currency.format(item.suggestedWithdrawal)}</td><td>{currency.format(item.nextFund)}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => viewSaved(item)}>Ver balance</button><button type="button" className="small-action danger-action" onClick={() => void deleteSaved(item)}>Eliminar</button></div></td></tr>)}</tbody></table></div></section>
-    {viewing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setViewing(null) }}><section className="modal balance-summary-modal" role="dialog" aria-modal="true" aria-labelledby="saved-balance-title"><div className="modal-heading"><div><p className="eyebrow">RESUMEN GUARDADO</p><h2 id="saved-balance-title">{monthLabels[viewing.month - 1]} {viewing.year}</h2></div><button className="close-button" type="button" onClick={() => setViewing(null)} aria-label="Cerrar">×</button></div><div className="saved-balance-grid"><div><span>Recaudo del mes</span><strong>{currency.format(viewing.totalCollections)}</strong></div><div><span>Compras y gastos</span><strong>{currency.format(viewing.totalExpenses)}</strong></div><div><span>Saldo de caja tras gastos</span><strong>{currency.format(viewing.remainingCash)}</strong></div><div><span>Retiro sugerido</span><strong>{currency.format(viewing.suggestedWithdrawal)}</strong></div><div><span>Fondo con que inició</span><strong>{currency.format(viewing.openingFund)}</strong></div><div><span>Fondo para el siguiente mes</span><strong>{currency.format(viewing.nextFund)}</strong></div><div><span>Créditos otorgados</span><strong>{currency.format(viewing.creditsGranted)}</strong></div><div><span>Saldo por cobrar histórico</span><strong>{currency.format(viewing.receivables)}</strong></div></div><div className="modal-actions"><button className="primary-button" type="button" onClick={() => setViewing(null)}>Cerrar resumen</button></div></section></div>}
+    {viewing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setViewing(null) }}><section className="modal balance-summary-modal" role="dialog" aria-modal="true" aria-labelledby="saved-balance-title"><div className="modal-heading"><div><p className="eyebrow">RESUMEN GUARDADO</p><h2 id="saved-balance-title">{monthLabels[viewing.month - 1]} {viewing.year}</h2></div><button className="close-button" type="button" onClick={() => setViewing(null)} aria-label="Cerrar">×</button></div><div className="saved-balance-grid"><div><span>Recaudo del mes</span><strong>{currency.format(viewing.totalCollections)}</strong></div><div><span>En efectivo</span><strong>{currency.format(viewing.cashSales)}</strong></div><div><span>En transferencias</span><strong>{currency.format(viewing.transferSales)}</strong></div><div><span>En otros medios</span><strong>{currency.format(viewing.otherCollections)}</strong></div><div><span>Compras y gastos</span><strong>{currency.format(viewing.totalExpenses)}</strong></div><div><span>Saldo de caja tras gastos</span><strong>{currency.format(viewing.remainingCash)}</strong></div><div><span>Retiro sugerido</span><strong>{currency.format(viewing.suggestedWithdrawal)}</strong></div><div><span>Fondo con que inició</span><strong>{currency.format(viewing.openingFund)}</strong></div><div><span>Fondo para el siguiente mes</span><strong>{currency.format(viewing.nextFund)}</strong></div><div><span>Créditos otorgados</span><strong>{currency.format(viewing.creditsGranted)}</strong></div><div><span>Saldo por cobrar histórico</span><strong>{currency.format(viewing.receivables)}</strong></div></div><div className="modal-actions"><button className="primary-button" type="button" onClick={() => setViewing(null)}>Cerrar resumen</button></div></section></div>}
   </div>
 }
 
@@ -1148,7 +1221,7 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
   const isAbono = isAbonoType(values.TIPO)
   const isReturn = isCreditForm && isReturnType(values.TIPO)
   const isReduction = isCreditForm && (isAbono || isReturn)
-  const formColumns = isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(isReturn && column.key === 'VALOR')) : columns
+  const formColumns = isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(isReturn && column.key === 'VALOR') && !(column.key === 'VALOR' && !isAbono) && !(column.key === 'MEDIO PAGO' && !isAbono && !isReturn)) : columns
   const selectedClient = String(values.NOMBRE ?? '').trim()
   const currentDebt = isCreditForm ? getClientDebt(data.CREDITOS, selectedClient) : 0
   const returnValue = Math.max(0, calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO))
@@ -1195,6 +1268,7 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
   function isRequired(column: { key: string; required?: boolean }) {
     if (!isCreditForm) return Boolean(column.required)
     if (['TIPO', 'FECHA', 'NOMBRE'].includes(column.key)) return true
+    if (column.key === 'MEDIO PAGO') return isAbono || (isReturn && refundValue > 0)
     if (column.key === 'VALOR') return isAbono
     if (column.key === 'PRECIO') return isReturn || !isReduction
     if (isReturn) return ['CODIGO', 'CANT'].includes(column.key)
@@ -1204,7 +1278,13 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
     event.preventDefault()
     const missing = formColumns.filter((column) => isRequired(column) && !String(values[column.key] ?? '').trim())
     if (missing.length) { setError('Completa: ' + missing.map((column) => column.label).join(', ') + '.'); return }
-    if (isCreditForm && !isReturn && transactionValue <= 0) { setError('Indica un valor mayor que cero.'); return }
+    if (module === 'ENTRADAS' && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice < 0 || !Number.isFinite(lineTotal))) { setError('La cantidad debe ser mayor a cero, el precio no puede ser negativo y el total debe ser válido.'); return }
+    if (module === 'VENTAS' && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice <= 0 || !Number.isFinite(lineDiscount) || lineDiscount < 0 || lineDiscount >= lineQuantity * lineUnitPrice || !Number.isFinite(lineTotal))) { setError('La cantidad y el precio deben ser mayores a cero; el descuento debe ser válido y menor que el subtotal.'); return }
+    if (module === 'GASTOS' && (!Number.isFinite(Number(values.VALOR)) || Number(values.VALOR) <= 0)) { setError('El valor del gasto debe ser mayor a cero.'); return }
+    if (module === 'COSTOS_NO_PRODUCIDOS' && (!Number.isFinite(Number(values.COSTO)) || Number(values.COSTO) < 0 || !Number.isFinite(Number(values['PRECIO AL PUBLICO'])) || Number(values['PRECIO AL PUBLICO']) <= 0 || !Number.isFinite(Number(values['COSTO FIJO'] ?? 0)) || Number(values['COSTO FIJO'] ?? 0) < 0)) { setError('Los costos no pueden ser negativos y el precio al público debe ser mayor a cero.'); return }
+    if (isCreditForm && !isReturn && (!Number.isFinite(transactionValue) || transactionValue <= 0)) { setError('Indica un valor válido mayor que cero.'); return }
+    if (isCreditForm && !isReduction && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice <= 0 || !Number.isFinite(lineDiscount) || lineDiscount < 0 || lineDiscount >= lineQuantity * lineUnitPrice || !Number.isFinite(lineTotal))) { setError('La cantidad y el precio deben ser mayores a cero; el descuento debe ser válido y menor que el subtotal.'); return }
+    if (isCreditForm && isReturn && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(returnValue) || returnValue <= 0)) { setError('La cantidad y el valor de la devolución deben ser mayores a cero.'); return }
     if ((module === 'VENTAS' || (isCreditForm && !isReduction)) && !validateAvailableStock(values, data)) { setError('El código no tiene existencias suficientes para esta cantidad.'); return }
     if (isCreditForm && isReturn) {
       const option = returnOptions.find((item) => normalizeCode(item.code) === normalizeCode(values.CODIGO))
@@ -1232,10 +1312,10 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
           const codeSelect = column.key === 'CODIGO' && (module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm && !isAbono)
           const codeOptions = isReturn ? returnOptions.map((item) => ({ code: item.code, label: `${item.code} · ${item.detail} · ${item.available} disp.`, disabled: false })) : productRows.map((item) => ({ code: String(item.CODIGO ?? ''), label: `${String(item.CODIGO ?? '')} · ${String(item.DETALLE ?? '')} · stock ${Number(item.STOCK ?? 0)}`, disabled: module !== 'ENTRADAS' && Number(item.STOCK ?? 0) <= 0 }))
           return <label key={column.key} className={disabled ? 'field-disabled' : ''}>{column.label}{isRequired(column) && <span>*</span>}
-            {customerSelect ? <select value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">Selecciona un cliente</option>{clientNames.map((name) => <option key={name} value={name}>{name}</option>)}</select>
+            {customerSelect             ? <select required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">Selecciona un cliente</option>{clientNames.map((name) => <option key={name} value={name}>{name}</option>)}</select>
               : codeSelect ? <select required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => { const code = event.target.value; const product = productRows.find((row) => normalizeCode(row.CODIGO) === normalizeCode(code)); const refundable = returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(code)); setValues((current) => ({ ...current, CODIGO: code, DETALLE: String(product?.DETALLE ?? refundable?.detail ?? ''), PRECIO: String(refundable?.unitPrice ?? productUnitPrice(code, module, data)) })); setError(''); }}>{isReturn ? <option value="">Elige un código que el cliente llevó</option> : <option value="">Selecciona un código del inventario</option>}{codeOptions.map((option) => <option key={option.code} value={option.code} disabled={option.disabled}>{option.label}</option>)}</select>
-              : column.type === 'select' ? <select disabled={disabled} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}>{(column.options ?? []).map((option) => <option key={option}>{option}</option>)}</select>
-                : <input disabled={disabled} autoFocus={index === 0} type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'} step={column.type === 'number' ? 'any' : undefined} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)} placeholder={column.type === 'number' ? '0' : ''} />}
+            : column.type === 'select' ? <select disabled={disabled} required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">{column.key.includes('PAGO') ? 'Selecciona un medio de pago' : 'Selecciona una opción'}</option>{(column.options ?? []).map((option) => <option key={option}>{option}</option>)}</select>
+              : <input disabled={disabled} required={isRequired(column)} autoFocus={index === 0} type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'} step={column.type === 'number' ? 'any' : undefined} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)} placeholder={column.type === 'number' ? '0' : ''} />}
           </label>
         })}</div>
         {module === 'INVENTARIO_PT' && <p className="form-hint">PRECIO, costo y existencias son calculados. Los costos se consultan en COSTOS_NO_PRODUCIDOS; las hojas de costos ocultas y consignaciones no se cargan en esta PWA.</p>}
@@ -1253,6 +1333,7 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
         </div>}
         {isReturn && <div className="debt-preview"><div><span>Valor de los productos devueltos</span><strong>{currency.format(returnValue)}</strong></div><div><span>Abono a la deuda</span><strong>{currency.format(returnDebtPart)}</strong></div><div><span>Reembolso a entregar al cliente</span><strong>{currency.format(refundValue)}</strong></div></div>}
         {isCreditForm && isAbono && <p className="form-hint">El abono reduce la deuda del cliente y se registra en VALOR.</p>}
+        {isCreditForm && !isAbono && !isReturn && <p className="form-hint">Un crédito aumenta la cartera, no el recaudo. El medio de pago se solicita al registrar ventas o abonos.</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancelar</button><button className="primary-button" type="submit">Guardar registro</button></div>
       </form>

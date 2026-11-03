@@ -55,7 +55,7 @@ export const moduleColumns: Record<ModuleKey, Column[]> = {
     { key: 'DETALLE', label: 'DETALLE', required: true }, { key: 'CANT', label: 'CANT', type: 'number', required: true },
     { key: 'PRECIO', label: 'PRECIO', type: 'number', required: true }, { key: 'DESCUENTO', label: 'DESCUENTO', type: 'number' },
     { key: 'TOTAL', label: 'TOTAL', type: 'number' }, { key: 'COMENTARIO', label: 'COMENTARIO' },
-    { key: 'MEDIO_DE_PAGO', label: 'MEDIO_DE_PAGO', type: 'select', options: ['Efectivo', 'Transferencia', 'Otro'] },
+    { key: 'MEDIO_DE_PAGO', label: 'MEDIO_DE_PAGO', type: 'select', required: true, options: ['Efectivo', 'Transferencia', 'Otro'] },
     { key: 'MES', label: 'MES' },
   ],
   GASTOS: [
