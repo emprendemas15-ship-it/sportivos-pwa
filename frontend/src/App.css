@@ -163,7 +163,9 @@
  .validation-credit-notice, .validation-credit-loading { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #cfe2d3; border-radius: 7px; color: #2d704a; background: #f0f9f1; font-size: 11px; }
 .validation-credit-loading { border-color: #e6ece7; color: #748278; background: #fff; }
 .validation-credit-person-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.validation-credit-person-details { display: grid; min-width: 0; gap: 12px; padding: 16px 18px; border-top: 1px solid #edf0ed; background: #f7faf8; }
+.validation-credit-person-details-cell { padding: 16px 18px !important; background: #f7faf8; }
+.validation-credit-person-details { display: grid; width: calc(100vw - 66px); max-width: 100%; min-width: 0; box-sizing: border-box; gap: 12px; }
+@media (min-width: 761px) { .validation-credit-person-details { width: calc(100vw - 372px); } }
 .validation-credit-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 9px; }
 .validation-credit-heading-actions > button { white-space: nowrap; }
 .validation-credit-history-modal { width: min(100%, 560px); }

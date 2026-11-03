@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { downloadClientStatement, shareClientStatement } from './lib/client-statement'
@@ -648,10 +648,6 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
     .filter((product) => String(product.CODIGO ?? '').trim())
     .slice()
     .sort((a, b) => String(a.CODIGO).localeCompare(String(b.CODIGO), 'es'))
-  const selectedHistoryPerson = people.find((person) => person.sheet === selected)
-  const recentTransactions = selectedHistoryPerson?.transactions.slice(-8) ?? []
-  const hasSavedRecentMovements = recentTransactions.some((transaction) => transaction.savedMovementId)
-
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Migración del archivo CREDITOS (2).xlsm con personas, compras, abonos y saldos pendientes por hoja.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button><button className="primary-button" type="button" onClick={() => openMovementForm()}><span className="plus">+</span> Registrar crédito o abono</button></div></div>
     {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
@@ -672,12 +668,15 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
         <div><h2>Listado de personas</h2><p>{people.length} resultados de {summary.totalPersonas} personas importadas.</p></div>
         <label className="search-box"><span>?</span><input aria-label="Buscar persona de validación de créditos" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, código o hoja..." /><kbd>Ctrl K</kbd></label>
       </div>
-      <div className="table-wrap"><table>
+      <div className="table-wrap"><table className="validation-credit-people-table">
         <thead><tr><th>Persona</th><th>Saldo pendiente</th><th>Total compras</th><th>Total abonado</th><th>Último movimiento</th><th>Estado</th></tr></thead>
         <tbody>
           {people.length === 0 ? <tr><td colSpan={6} className="empty-state"><strong>Sin coincidencias</strong><span>No aparecen personas con ese filtro.</span></td></tr> : people.map((person) => {
+            const recentTransactions = person.transactions.slice(-8)
+            const hasSavedRecentMovements = recentTransactions.some((transaction) => transaction.savedMovementId)
             const isSelected = selected === person.sheet
-            return <tr key={person.sheet} className={isSelected ? 'selected-row' : ''} onClick={() => setSelected(isSelected ? null : person.sheet)} style={{ cursor: 'pointer' }}>
+            return <Fragment key={person.sheet}>
+              <tr className={isSelected ? 'selected-row' : ''} onClick={() => setSelected(isSelected ? null : person.sheet)} style={{ cursor: 'pointer' }}>
                 <td>{person.name}</td>
                 <td>{currency.format(person.saldoPendiente)}</td>
                 <td>{currency.format(person.totalCompras)}</td>
@@ -685,17 +684,20 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
                 <td>{person.ultimoMovimiento ? new Date(person.ultimoMovimiento + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
                 <td><span className={person.estado === 'PENDIENTE' ? 'status-pill pending' : 'status-pill ok'}>{person.estado === 'PENDIENTE' ? 'Pendiente' : 'Al día'}</span></td>
               </tr>
+              {isSelected && <tr><td className="validation-credit-person-details-cell" colSpan={6}>
+                <div className="validation-credit-person-details">
+                  <div className="validation-credit-person-heading"><strong>Ficha de {person.name}</strong><button className="small-action" type="button" onClick={() => openMovementForm(person.sheet)}>Registrar crédito o abono</button></div>
+                  <p className="validation-credit-actions-hint">Usa “Historial PDF” para descargar todos los movimientos de una persona. Los movimientos nuevos se pueden eliminar; el historial importado se conserva.</p>
+                  <div className="table-wrap validation-credit-history-wrap"><table className={`validation-credit-history-table${hasSavedRecentMovements ? '' : ' validation-credit-history-table-no-actions'}`}>
+                    <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Negocio</th>{hasSavedRecentMovements && <th>Acciones</th>}</tr></thead>
+                    <tbody>{recentTransactions.map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td>{row.negocio ?? '—'}</td>{hasSavedRecentMovements && <td className="validation-credit-actions-cell">{row.savedMovementId && <div className="validation-credit-row-actions"><button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button></div>}</td>}</tr>)}</tbody>
+                  </table></div>
+                </div>
+              </td></tr>}
+            </Fragment>
           })}
         </tbody>
       </table></div>
-      {selectedHistoryPerson && <div className="validation-credit-person-details">
-        <div className="validation-credit-person-heading"><strong>Ficha de {selectedHistoryPerson.name}</strong><button className="small-action" type="button" onClick={() => openMovementForm(selectedHistoryPerson.sheet)}>Registrar crédito o abono</button></div>
-        <p className="validation-credit-actions-hint">Usa “Historial PDF” para descargar todos los movimientos de una persona. Los movimientos nuevos se pueden eliminar; el historial importado se conserva.</p>
-        <div className="table-wrap validation-credit-history-wrap"><table className={`validation-credit-history-table${hasSavedRecentMovements ? '' : ' validation-credit-history-table-no-actions'}`}>
-            <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Negocio</th>{hasSavedRecentMovements && <th>Acciones</th>}</tr></thead>
-            <tbody>{recentTransactions.map((row, index) => <tr key={row.savedMovementId ?? `${selectedHistoryPerson.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td>{row.negocio ?? '—'}</td>{hasSavedRecentMovements && <td className="validation-credit-actions-cell">{row.savedMovementId && <div className="validation-credit-row-actions"><button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, selectedHistoryPerson.name)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${selectedHistoryPerson.name}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button></div>}</td>}</tr>)}</tbody>
-        </table></div>
-      </div>}
     </section>
     {showHistoryPdfModal && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isGeneratingHistoryPdf) setShowHistoryPdfModal(false) }}><section className="modal validation-credit-history-modal" role="dialog" aria-modal="true" aria-labelledby="validation-credit-history-title">
       <div className="modal-heading"><div><p className="eyebrow">REPORTE DE CARTERA</p><h2 id="validation-credit-history-title">Historial completo en PDF</h2><p>Selecciona una persona para incluir todos sus créditos y abonos registrados.</p></div><button className="close-button" type="button" onClick={() => setShowHistoryPdfModal(false)} aria-label="Cerrar" disabled={isGeneratingHistoryPdf}>×</button></div>
