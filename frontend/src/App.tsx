@@ -862,9 +862,10 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
     return () => media.removeEventListener('change', update)
   }, [])
   const latest = balances.slice(-6)
-  const values = latest.map((item) => item.totalCollections - item.totalExpenses)
-  const min = Math.min(0, ...values)
-  const max = Math.max(0, ...values)
+  const utilityValues = latest.map((item) => item.totalCollections - item.totalExpenses)
+  const expenseValues = latest.map((item) => item.totalExpenses)
+  const min = Math.min(0, ...utilityValues)
+  const max = Math.max(0, ...utilityValues, ...expenseValues)
   const range = max - min || 1
   const padding = range * 0.12
   const chartMin = min - padding
@@ -883,39 +884,49 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
   const plotCenter = (left + chartWidth - right) / 2
   const xForMonth = (item: MonthlyBalance) => plotCenter + (item.year * 12 + item.month - (firstMonth + monthSpan / 2)) * monthSpacing
   const yForValue = (value: number) => bottom - (value - chartMin) / (chartMax - chartMin) * plotHeight
-  const points = latest.map((item) => ({ item, value: item.totalCollections - item.totalExpenses, x: xForMonth(item), y: yForValue(item.totalCollections - item.totalExpenses) }))
-  const line = points.map((point) => `${point.x},${point.y}`).join(' ')
+  const points = latest.map((item) => ({ item, utility: item.totalCollections - item.totalExpenses, expenses: item.totalExpenses, x: xForMonth(item), utilityY: yForValue(item.totalCollections - item.totalExpenses), expensesY: yForValue(item.totalExpenses) }))
+  const utilityLine = points.map((point) => `${point.x},${point.utilityY}`).join(' ')
+  const expenseLine = points.map((point) => `${point.x},${point.expensesY}`).join(' ')
   const axisLabel = (value: number) => value === 0 ? '$0' : `$${number.format(Math.round(value / 100000) / 10)} M`
+  const valueLabel = (value: number) => isCompact
+    ? Math.abs(value) >= 1000000
+      ? `$${number.format(value / 1000000)} M`
+      : Math.abs(value) >= 1000
+        ? `$${number.format(value / 1000)} mil`
+        : currency.format(value)
+    : currency.format(value)
 
-  return <section className="utility-trend" aria-label="Utilidad mensual">
-    <div className="section-heading"><div><h2>Utilidad mensual</h2><p>Recaudo menos gastos, por mes</p></div></div>
+  return <section className="utility-trend" aria-label="Utilidad y gastos mensuales">
+    <div className="section-heading"><div><h2>Utilidad y gastos mensuales</h2><p>Comparación mensual del resultado neto y los egresos</p></div></div>
     {latest.length === 0 ? <div className="balance-trend-empty">Cuando guardes un balance mensual, aquí verás la utilidad de cada mes.</div> : <div className="utility-chart-wrap">
-      <svg className="utility-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Línea de utilidad mensual">
+      <svg className="utility-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Líneas de utilidad neta y gastos mensuales">
         {[0, 0.5, 1].map((fraction) => {
           const value = chartMin + (chartMax - chartMin) * fraction
           const y = yForValue(value)
           return <g key={fraction}><line x1={left} x2={chartWidth - right} y1={y} y2={y} className="utility-chart-gridline" /><text x={left - 12} y={y + 4} textAnchor="end" className="utility-chart-axis">{axisLabel(value)}</text></g>
         })}
-        <polyline points={line} className="utility-chart-line" />
-        {points.map(({ item, value, x, y }) => {
-          const labelY = y < top + 28 ? y + 29 : y - 13
+        <polyline points={utilityLine} className="utility-chart-line" />
+        <polyline points={expenseLine} className="utility-chart-expense-line" />
+        {points.map(({ item, utility, expenses, x, utilityY, expensesY }) => {
           const monthName = monthLabels[item.month - 1]
           const label = `${monthName} ${item.year}`
           const displayMonth = isCompact ? `${monthName.slice(0, 3)} '${String(item.year).slice(-2)}` : label
-          const displayValue = isCompact
-            ? Math.abs(value) >= 1000000
-              ? `$${number.format(value / 1000000)} M`
-              : Math.abs(value) >= 1000
-                ? `$${number.format(value / 1000)} mil`
-                : currency.format(value)
-            : currency.format(value)
+          const labelsNeedSeparation = Math.abs(utilityY - expensesY) < (isCompact ? 25 : 30)
+          const labelOffset = isCompact ? 25 : 39
+          const utilityLabelX = labelsNeedSeparation ? x - labelOffset : x
+          const expenseLabelX = labelsNeedSeparation ? x + labelOffset : x
+          const utilityLabelY = utilityY < top + 28 ? utilityY + 29 : utilityY - 13
+          const expenseLabelY = expensesY < top + 28 ? expensesY + 29 : expensesY + 20
           return <g key={`${item.year}-${item.month}`}>
-            <circle cx={x} cy={y} r="5" className="utility-chart-point"><title>{`${label}: ${currency.format(value)}`}</title></circle>
-            <text x={x} y={labelY} textAnchor="middle" className="utility-chart-value">{displayValue}</text>
+            <circle cx={x} cy={utilityY} r="4.5" className="utility-chart-point"><title>{`Utilidad · ${label}: ${currency.format(utility)}`}</title></circle>
+            <circle cx={x} cy={expensesY} r="4.5" className="utility-chart-expense-point"><title>{`Gastos · ${label}: ${currency.format(expenses)}`}</title></circle>
+            <text x={utilityLabelX} y={utilityLabelY} textAnchor="middle" className="utility-chart-value">{valueLabel(utility)}</text>
+            <text x={expenseLabelX} y={expenseLabelY} textAnchor="middle" className="utility-chart-expense-value">{valueLabel(expenses)}</text>
             <text x={x} y="202" textAnchor="middle" className="utility-chart-month">{displayMonth}</text>
           </g>
         })}
       </svg>
+      <div className="utility-chart-legend"><span><i className="utility-legend-profit" />Utilidad neta</span><span><i className="utility-legend-expense" />Gastos</span></div>
     </div>}
   </section>
 }
