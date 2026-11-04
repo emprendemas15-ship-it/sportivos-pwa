@@ -422,12 +422,26 @@ function useSavedBalances(): { balances: MonthlyBalance[]; loaded: boolean } {
 async function readRemoteData(): Promise<Record<ModuleKey, WorkbookRow[]>> {
   if (!supabase) throw new Error('Falta la configuración de Supabase.')
   const client = supabase
+  async function readTable(table: string) {
+    const pageSize = 1000
+    const rows: WorkbookRow[] = []
+    for (let offset = 0; ; offset += pageSize) {
+      const result = await client.from(table).select('*').order('created_at', { ascending: true }).range(offset, offset + pageSize - 1)
+      if (result.error) throw result.error
+      const page = (result.data ?? []) as WorkbookRow[]
+      rows.push(...page)
+      if (page.length < pageSize) return rows
+    }
+  }
   const entries = await Promise.all((Object.keys(remoteTableByModule) as ModuleKey[]).map(async (module) => {
     const table = remoteTableByModule[module]
     if (!table) return [module, []] as const
-    const result = await client.from(table).select('*').order('created_at', { ascending: true })
-    if (result.error) throw new Error(module + ': ' + result.error.message)
-    return [module, (result.data ?? []).map((row) => fromRemoteRow(module, row as WorkbookRow))] as const
+    try {
+      const rows = await readTable(table)
+      return [module, rows.map((row) => fromRemoteRow(module, row))] as const
+    } catch (error) {
+      throw new Error(module + ': ' + (error instanceof Error ? error.message : String(error)))
+    }
   }))
   return { ...emptyWorkbookData(), ...Object.fromEntries(entries) } as Record<ModuleKey, WorkbookRow[]>
 }
