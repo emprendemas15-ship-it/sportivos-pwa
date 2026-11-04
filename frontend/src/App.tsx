@@ -51,9 +51,76 @@ const localDateInputValue = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
+const datedOperationalModules = new Set<ModuleKey>(['ENTRADAS', 'VENTAS', 'GASTOS', 'CREDITOS'])
+
+type PeriodPolicy = {
+  month: number
+  year: number
+  firstDate: string
+  today: string
+  previousMonth: number
+  previousYear: number
+  balancesLoaded: boolean
+  previousBalanceClosed: boolean
+  canRegister: boolean
+  message: string
+}
+
+function currentPeriod(): { month: number; year: number; firstDate: string; today: string } {
+  const now = new Date()
+  const today = localDateInputValue()
+  return {
+    month: now.getMonth() + 1,
+    year: now.getFullYear(),
+    firstDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`,
+    today,
+  }
+}
+
+function previousPeriod(month: number, year: number): { month: number; year: number } {
+  return month === 1 ? { month: 12, year: year - 1 } : { month: month - 1, year }
+}
+
+function buildPeriodPolicy(history: MonthlyBalance[], balancesLoaded: boolean, data: Record<ModuleKey, WorkbookRow[]>): PeriodPolicy {
+  const current = currentPeriod()
+  const previous = previousPeriod(current.month, current.year)
+  const previousBalanceClosed = history.some((item) => item.month === previous.month && item.year === previous.year)
+  const previousHasMovements = [...data.ENTRADAS, ...data.VENTAS, ...data.GASTOS, ...data.CREDITOS]
+    .some((row) => matchesPeriod(row, previous.month, previous.year))
+  const requiresPreviousClose = previousHasMovements || history.length > 0
+  const canRegister = balancesLoaded && (!requiresPreviousClose || previousBalanceClosed)
+  const message = !balancesLoaded
+    ? 'Espera a que se verifique el estado del balance mensual.'
+    : !previousBalanceClosed && requiresPreviousClose
+      ? `No puedes registrar movimientos de ${monthLabels[current.month - 1]} ${current.year} hasta guardar el balance de ${monthLabels[previous.month - 1]} ${previous.year}.`
+      : ''
+  return { ...current, previousMonth: previous.month, previousYear: previous.year, balancesLoaded, previousBalanceClosed, canRegister, message }
+}
+
+function dateInputValue(value: CellValue | undefined): string {
+  const raw = String(value ?? '').trim()
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (iso) return `${iso[1]}-${String(Number(iso[2])).padStart(2, '0')}-${String(Number(iso[3])).padStart(2, '0')}`
+  const timestamp = rowDateValue(value ?? null)
+  if (!timestamp) return ''
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+function validateOperationalDate(value: CellValue | undefined, policy: PeriodPolicy): string {
+  const date = dateInputValue(value)
+  if (!date) return 'La fecha es obligatoria y debe ser válida.'
+  if (date < policy.firstDate || date > policy.today) {
+    return `La fecha debe estar entre ${policy.firstDate} y ${policy.today}, dentro del mes en curso.`
+  }
+  if (!policy.canRegister) return policy.message
+  return ''
+}
+
 function App() {
   const { data, syncState, syncError, writeBlocked, refreshAll, markWriteFailure, markWriteSuccess } = useWorkbookSync()
-  const balanceHistory = useSavedBalances()
+  const { balances: balanceHistory, loaded: balancesLoaded } = useSavedBalances()
+  const periodPolicy = useMemo(() => buildPeriodPolicy(balanceHistory, balancesLoaded, data), [balanceHistory, balancesLoaded, data])
   const [active, setActive] = useState<ModuleKey | 'MENU'>('MENU')
   const [search, setSearch] = useState('')
   const [creditFilters, setCreditFilters] = useState<CreditFilters>({ name: '', type: '', from: '', to: '' })
@@ -98,6 +165,13 @@ function App() {
       return
     }
     const normalized = normalizeRow(active, row, data)
+    if (datedOperationalModules.has(active)) {
+      const dateError = validateOperationalDate(normalized.FECHA, periodPolicy)
+      if (dateError) {
+        flashNotice(dateError)
+        return
+      }
+    }
     if (!supabase) {
       flashNotice('No se guardó: falta conexión con la base compartida. Conéctate y vuelve a intentar.')
       return
@@ -192,9 +266,9 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') }} onDelete={deleteRow} deletingRecord={deletingRecord} onNotice={flashNotice} />}
+      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} periodPolicy={periodPolicy} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onDelete={deleteRow} deletingRecord={deletingRecord} onNotice={flashNotice} />}
     </main>
-    {showForm && active !== 'MENU' && <RecordForm module={active} data={data} onClose={() => setShowForm(false)} onSave={saveRow} />}
+    {showForm && active !== 'MENU' && <RecordForm module={active} data={data} periodPolicy={periodPolicy} onClose={() => setShowForm(false)} onSave={saveRow} />}
   </div>
 }
 
@@ -298,10 +372,14 @@ function useWorkbookSync() {
   return { data, syncState, syncError, writeBlocked, refreshAll, markWriteFailure, markWriteSuccess }
 }
 
-function useSavedBalances(): MonthlyBalance[] {
+function useSavedBalances(): { balances: MonthlyBalance[]; loaded: boolean } {
   const [balances, setBalances] = useState<MonthlyBalance[]>([])
+  const [loaded, setLoaded] = useState(false)
   useEffect(() => {
-    if (!supabase) return
+    if (!supabase) {
+      setLoaded(true)
+      return
+    }
     const client = supabase
     let cancelled = false
     let loading = false
@@ -319,7 +397,10 @@ function useSavedBalances(): MonthlyBalance[] {
         if (!cancelled) setBalances([...byPeriod.values()].sort((a, b) => a.year - b.year || a.month - b.month))
       } catch (error) {
         console.error('No se pudieron cargar los balances del dashboard.', error)
-      } finally { loading = false }
+      } finally {
+        loading = false
+        if (!cancelled) setLoaded(true)
+      }
     }
     const refreshWhenActive = () => { if (document.visibilityState === 'visible') void refresh() }
     void refresh()
@@ -335,7 +416,7 @@ function useSavedBalances(): MonthlyBalance[] {
       document.removeEventListener('visibilitychange', refreshWhenActive)
     }
   }, [])
-  return balances
+  return { balances, loaded }
 }
 
 async function readRemoteData(): Promise<Record<ModuleKey, WorkbookRow[]>> {
@@ -382,7 +463,7 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   return next
 }
 
-function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
+function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, WorkbookRow[]>; periodPolicy: PeriodPolicy }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [movements, setMovements] = useState<SavedValidationCreditMovement[]>([])
@@ -498,6 +579,10 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
   }, [])
 
   function openMovementForm(personSheet = '') {
+    if (!periodPolicy.canRegister) {
+      setMovementFormError(periodPolicy.message)
+      return
+    }
     setMovementNotice('')
     setMovementFormError('')
     setForm({
@@ -521,6 +606,11 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
   async function saveValidationMovement(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setMovementFormError('')
+    const dateError = validateOperationalDate(form.date, periodPolicy)
+    if (dateError) {
+      setMovementFormError(dateError)
+      return
+    }
     const person = allPeople.find((item) => item.sheet === form.personSheet)
     if (!person) {
       setMovementFormError('Selecciona una persona de la lista del Excel.')
@@ -649,7 +739,8 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
     .slice()
     .sort((a, b) => String(a.CODIGO).localeCompare(String(b.CODIGO), 'es'))
   return <section className="page-content">
-    <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Migración del archivo CREDITOS (2).xlsm con personas, compras, abonos y saldos pendientes por hoja.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button><button className="primary-button" type="button" onClick={() => openMovementForm()}><span className="plus">+</span> Registrar crédito o abono</button></div></div>
+    <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Migración del archivo CREDITOS (2).xlsm con personas, compras, abonos y saldos pendientes por hoja.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button><button className="primary-button" type="button" onClick={() => openMovementForm()} disabled={!periodPolicy.canRegister} title={periodPolicy.canRegister ? 'Registrar movimiento del mes en curso' : periodPolicy.message}><span className="plus">+</span> Registrar crédito o abono</button></div></div>
+    {!periodPolicy.canRegister && <p className="sync-warning" role="alert">{periodPolicy.message}</p>}
     {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
     {movementNotice && <p className="validation-credit-notice" role="status">{movementNotice}</p>}
     {movementActionError && <p className="form-error" role="alert">{movementActionError}</p>}
@@ -710,7 +801,7 @@ function ValidationCreditView({ data }: { data: Record<ModuleKey, WorkbookRow[]>
       <form onSubmit={(event) => void saveValidationMovement(event)}>
         <div className="validation-credit-form-grid">
           <label>Persona<select required value={form.personSheet} onChange={(event) => setForm((current) => ({ ...current, personSheet: event.target.value }))}><option value="">Selecciona una persona</option>{allPeople.map((person) => <option key={person.sheet} value={person.sheet}>{person.name}</option>)}</select></label>
-          <label>Fecha<input required type="date" value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} /></label>
+          <label>Fecha<input required type="date" min={periodPolicy.firstDate} max={periodPolicy.today} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} /></label>
         </div>
         <fieldset className="validation-credit-type"><legend>Tipo de movimiento</legend><label><input type="radio" name="validation-credit-type" checked={form.type === 'CREDITO'} onChange={() => setForm((current) => ({ ...current, type: 'CREDITO' }))} /> Crédito</label><label><input type="radio" name="validation-credit-type" checked={form.type === 'ABONO'} onChange={() => setForm((current) => ({ ...current, type: 'ABONO' }))} /> Abono</label></fieldset>
         {form.type === 'CREDITO' ? <div className="validation-credit-form-grid">
@@ -1166,8 +1257,8 @@ function paymentCategory(value: CellValue | undefined): 'cash' | 'transfer' | 'o
   return 'other'
 }
 function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
-  const [month, setMonth] = useState(10)
-  const [year, setYear] = useState(2026)
+  const [month, setMonth] = useState(() => currentPeriod().month)
+  const [year, setYear] = useState(() => currentPeriod().year)
   const [openingFund, setOpeningFund] = useState(() => septemberBalance.nextFund)
   const [withdrawalPercent, setWithdrawalPercent] = useState(20)
   const [history, setHistory] = useState<MonthlyBalance[]>([])
@@ -1199,6 +1290,15 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
     })
     return () => { cancelled = true }
   }, [])
+  useEffect(() => {
+    const current = currentPeriod()
+    if (month !== current.month || year !== current.year) return
+    const prior = history.find((item) => {
+      const previous = previousPeriod(current.month, current.year)
+      return item.month === previous.month && item.year === previous.year
+    })
+    if (prior) setOpeningFund(prior.nextFund)
+  }, [history, month, year])
   const report = generated?.month === month && generated.year === year ? generated : calculateBalance(data, month, year, openingFund, withdrawalPercent / 100)
   const hasCurrentReport = generated?.month === month && generated.year === year
   const title = `ESTADO DE RESULTADOS Y FLUJO DE CAJA: ${monthLabels[month - 1]?.toUpperCase()} ${year}`
@@ -1289,12 +1389,12 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
 
 function BalanceSection({ title, rows }: { title: string; rows: Array<[string, number, string?]> }) { return <section className="balance-section"><h3>{title}</h3>{rows.map(([label, amount, tone]) => <div key={label} className={`balance-row ${tone ? `balance-${tone}` : ''}`}><span>{label}</span><strong>{currency.format(amount)}</strong></div>)}</section> }
 
-function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; onClose: () => void; onSave: (row: WorkbookRow) => Promise<void> | void }) {
+function RecordForm({ module, data, periodPolicy, onClose, onSave }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; periodPolicy: PeriodPolicy; onClose: () => void; onSave: (row: WorkbookRow) => Promise<void> | void }) {
   const isCreditForm = module === 'CREDITOS'
   const columns = moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'VALOR_PRODUCTO', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS'))
   const clientNames = useMemo(() => Array.from(new Set([...data.CLIENTES, ...data.CREDITOS].map((row) => String(row.NOMBRE ?? '').trim()).filter(Boolean))), [data.CLIENTES, data.CREDITOS])
   const creditKeys = ['TIPO', 'FECHA', 'NOMBRE', 'CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO', 'VALOR', 'COMENTARIO', 'MEDIO PAGO']
-  const [values, setValues] = useState<WorkbookRow>(() => Object.fromEntries(columns.map((column) => [column.key, column.type === 'date' ? new Date().toISOString().slice(0, 10) : column.key === 'TIPO' ? CREDIT_TYPE : column.key === 'MES' && module === 'GASTOS' ? 'Otro' : column.key === 'COSTO FIJO' ? 500 : column.key === 'NOMBRE' && clientNames[0] ? clientNames[0] : column.type === 'number' ? '' : ''])) as WorkbookRow)
+  const [values, setValues] = useState<WorkbookRow>(() => Object.fromEntries(columns.map((column) => [column.key, column.type === 'date' ? localDateInputValue() : column.key === 'TIPO' ? CREDIT_TYPE : column.key === 'MES' && module === 'GASTOS' ? 'Otro' : column.key === 'COSTO FIJO' ? 500 : column.key === 'NOMBRE' && clientNames[0] ? clientNames[0] : column.type === 'number' ? '' : ''])) as WorkbookRow)
   const [error, setError] = useState('')
   const isAbono = isAbonoType(values.TIPO)
   const isReturn = isCreditForm && isReturnType(values.TIPO)
@@ -1356,6 +1456,10 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
     event.preventDefault()
     const missing = formColumns.filter((column) => isRequired(column) && !String(values[column.key] ?? '').trim())
     if (missing.length) { setError('Completa: ' + missing.map((column) => column.label).join(', ') + '.'); return }
+    if (datedOperationalModules.has(module)) {
+      const dateError = validateOperationalDate(values.FECHA, periodPolicy)
+      if (dateError) { setError(dateError); return }
+    }
     if (module === 'ENTRADAS' && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice < 0 || !Number.isFinite(lineTotal))) { setError('La cantidad debe ser mayor a cero, el precio no puede ser negativo y el total debe ser válido.'); return }
     if (module === 'VENTAS' && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice <= 0 || !Number.isFinite(lineDiscount) || lineDiscount < 0 || lineDiscount >= lineQuantity * lineUnitPrice || !Number.isFinite(lineTotal))) { setError('La cantidad y el precio deben ser mayores a cero; el descuento debe ser válido y menor que el subtotal.'); return }
     if (module === 'GASTOS' && (!Number.isFinite(Number(values.VALOR)) || Number(values.VALOR) <= 0)) { setError('El valor del gasto debe ser mayor a cero.'); return }
@@ -1393,7 +1497,7 @@ function RecordForm({ module, data, onClose, onSave }: { module: ModuleKey; data
             {customerSelect             ? <select required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">Selecciona un cliente</option>{clientNames.map((name) => <option key={name} value={name}>{name}</option>)}</select>
               : codeSelect ? <select required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => { const code = event.target.value; const product = productRows.find((row) => normalizeCode(row.CODIGO) === normalizeCode(code)); const refundable = returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(code)); setValues((current) => ({ ...current, CODIGO: code, DETALLE: String(product?.DETALLE ?? refundable?.detail ?? ''), PRECIO: String(refundable?.unitPrice ?? productUnitPrice(code, module, data)) })); setError(''); }}>{isReturn ? <option value="">Elige un código que el cliente llevó</option> : <option value="">Selecciona un código del inventario</option>}{codeOptions.map((option) => <option key={option.code} value={option.code} disabled={option.disabled}>{option.label}</option>)}</select>
             : column.type === 'select' ? <select disabled={disabled} required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">{column.key.includes('PAGO') ? 'Selecciona un medio de pago' : 'Selecciona una opción'}</option>{(column.options ?? []).map((option) => <option key={option}>{option}</option>)}</select>
-              : <input disabled={disabled} required={isRequired(column)} autoFocus={index === 0} type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'} step={column.type === 'number' ? 'any' : undefined} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)} placeholder={column.type === 'number' ? '0' : ''} />}
+              : <input disabled={disabled} required={isRequired(column)} autoFocus={index === 0} type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'} min={column.type === 'date' ? periodPolicy.firstDate : undefined} max={column.type === 'date' ? periodPolicy.today : undefined} step={column.type === 'number' ? 'any' : undefined} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)} placeholder={column.type === 'number' ? '0' : ''} />}
           </label>
         })}</div>
         {module === 'INVENTARIO_PT' && <p className="form-hint">PRECIO, costo y existencias son calculados. Los costos se consultan en COSTOS_NO_PRODUCIDOS; las hojas de costos ocultas y consignaciones no se cargan en esta PWA.</p>}
