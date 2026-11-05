@@ -26,6 +26,8 @@ const remoteTableByModule: Partial<Record<ModuleKey, string>> = {
   INVENTARIO_PT: 'inventario_pt', ENTRADAS: 'entradas', VENTAS: 'ventas', GASTOS: 'gastos', CREDITOS: 'creditos', CLIENTES: 'clientes', COSTOS_NO_PRODUCIDOS: 'costos_no_producidos',
 }
 type SyncState = 'syncing' | 'synced' | 'error'
+type PhysicalInventoryCount = { id: string; code: string; quantity: number; countedAt: string; note: string | null }
+type RemoteSnapshot = { data: Record<ModuleKey, WorkbookRow[]>; physicalCounts: PhysicalInventoryCount[]; physicalCountsError: string }
 type CreditFilters = { name: string; type: string; from: string; to: string }
 type ValidationCreditFormValues = {
   requestId: string
@@ -44,6 +46,7 @@ type ValidationCreditFormValues = {
 }
 
 const validationCreditTable = 'validacion_creditos_movimientos'
+const physicalInventoryCountTable = 'inventario_conteos_fisicos'
 const validationCreditBusinesses = ['SPORTIVOS', 'COLIPETS', 'OTRO']
 const customCreditCodeOption = '__CUSTOM_CREDIT_CODE__'
 const localDateInputValue = () => {
@@ -118,7 +121,7 @@ function validateOperationalDate(value: CellValue | undefined, policy: PeriodPol
 }
 
 function App() {
-  const { data, syncState, syncError, writeBlocked, refreshAll, markWriteFailure, markWriteSuccess } = useWorkbookSync()
+  const { data, physicalCounts, physicalCountsError, syncState, syncError, writeBlocked, refreshAll, markWriteFailure, markWriteSuccess } = useWorkbookSync()
   const { balances: balanceHistory, loaded: balancesLoaded } = useSavedBalances()
   const periodPolicy = useMemo(() => buildPeriodPolicy(balanceHistory, balancesLoaded, data), [balanceHistory, balancesLoaded, data])
   const [active, setActive] = useState<ModuleKey | 'MENU'>('MENU')
@@ -127,12 +130,13 @@ function App() {
   const [showForm, setShowForm] = useState(false)
   const [notice, setNotice] = useState('')
   const [deletingRecord, setDeletingRecord] = useState<string | null>(null)
+  const [showPhysicalCount, setShowPhysicalCount] = useState(false)
 
   const rows = useMemo(() => {
-    const currentRows = getRows(active, data)
+    const currentRows = getRows(active, data, physicalCounts)
     if (active === 'MENU' || active === 'BALANCE' || active === 'CREDITOS') return currentRows
     return [...currentRows].sort((a, b) => rowCreatedAtValue(b) - rowCreatedAtValue(a))
-  }, [active, data])
+  }, [active, data, physicalCounts])
   const filteredRows = useMemo(() => {
     if (active === 'CREDITOS') return filterCreditRows(rows, creditFilters)
     const needle = search.trim().toLowerCase()
@@ -190,6 +194,41 @@ function App() {
       const message = error instanceof Error ? error.message : 'Error desconocido'
       markWriteFailure('La base está en línea, pero no se pudo guardar el registro. ' + message)
       flashNotice('No se pudo guardar: ' + message)
+    }
+  }
+
+  async function savePhysicalCounts(values: Array<{ code: string; quantity: number; note: string }>): Promise<boolean> {
+    if (!values.length) {
+      flashNotice('Escribe al menos una cantidad contada antes de guardar.')
+      return false
+    }
+    if (syncState !== 'synced' || !supabase) {
+      flashNotice('No se guardó: espera a que aparezca la conexión con la base compartida.')
+      return false
+    }
+    try {
+      const countedAt = new Date().toISOString()
+      const result = await (supabase as any).from(physicalInventoryCountTable).insert(values.map((value) => ({
+        codigo: value.code,
+        cantidad_contada: value.quantity,
+        contado_at: countedAt,
+        nota: value.note.trim() || null,
+      })))
+      if (result.error) throw new Error(result.error.message)
+      markWriteSuccess()
+      const refreshed = await refreshAll()
+      flashNotice(refreshed
+        ? 'Conteo físico guardado. No se creó una entrada/salida ni se modificó el balance.'
+        : 'Conteo guardado, pero no se pudieron actualizar las existencias. Pulsa Actualizar.')
+      return true
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido'
+      const setupHint = message.toLowerCase().includes('does not exist') || message.toLowerCase().includes('relation')
+        ? ' Ejecuta la migración supabase/migrations/20261104120000_inventario_conteos_fisicos.sql en Supabase.'
+        : ''
+      markWriteFailure('No se pudo guardar el conteo físico. ' + message + setupHint)
+      flashNotice('No se pudo guardar el conteo físico. ' + message + setupHint)
+      return false
     }
   }
 
@@ -266,14 +305,17 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} periodPolicy={periodPolicy} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onDelete={deleteRow} deletingRecord={deletingRecord} onNotice={flashNotice} />}
+      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} physicalCounts={physicalCounts} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} periodPolicy={periodPolicy} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onPhysicalCount={() => setShowPhysicalCount(true)} onDelete={deleteRow} deletingRecord={deletingRecord} onNotice={flashNotice} physicalCountsError={physicalCountsError} />}
     </main>
-    {showForm && active !== 'MENU' && <RecordForm module={active} data={data} periodPolicy={periodPolicy} onClose={() => setShowForm(false)} onSave={saveRow} />}
+    {showForm && active !== 'MENU' && <RecordForm module={active} data={data} physicalCounts={physicalCounts} periodPolicy={periodPolicy} onClose={() => setShowForm(false)} onSave={saveRow} />}
+    {showPhysicalCount && <PhysicalInventoryCountModal data={data} counts={physicalCounts} setupError={physicalCountsError} onClose={() => setShowPhysicalCount(false)} onSave={savePhysicalCounts} />}
   </div>
 }
 
 function useWorkbookSync() {
   const [data, setData] = useState<Record<ModuleKey, WorkbookRow[]>>(emptyWorkbookData)
+  const [physicalCounts, setPhysicalCounts] = useState<PhysicalInventoryCount[]>([])
+  const [physicalCountsError, setPhysicalCountsError] = useState('')
   const [syncState, setSyncState] = useState<SyncState>('syncing')
   const [syncError, setSyncError] = useState('')
   const [writeBlocked, setWriteBlocked] = useState(false)
@@ -310,7 +352,9 @@ function useWorkbookSync() {
     try {
       const remoteData = await readRemoteData()
       hasLoadedRemote.current = true
-      setData(remoteData)
+      setData(remoteData.data)
+      setPhysicalCounts(remoteData.physicalCounts)
+      setPhysicalCountsError(remoteData.physicalCountsError)
       setSyncError(writeBlockedRef.current ? 'La base está en línea, pero un intento de guardado fue rechazado. Revisa los permisos o intenta guardar de nuevo.' : '')
       setSyncState('synced')
       window.dispatchEvent(new CustomEvent('sportivos:balance-updated'))
@@ -369,7 +413,7 @@ function useWorkbookSync() {
     return () => window.removeEventListener('sportivos:write-status', handleWriteStatus)
   }, [markWriteFailure, markWriteSuccess])
 
-  return { data, syncState, syncError, writeBlocked, refreshAll, markWriteFailure, markWriteSuccess }
+  return { data, physicalCounts, physicalCountsError, syncState, syncError, writeBlocked, refreshAll, markWriteFailure, markWriteSuccess }
 }
 
 function useSavedBalances(): { balances: MonthlyBalance[]; loaded: boolean } {
@@ -419,7 +463,7 @@ function useSavedBalances(): { balances: MonthlyBalance[]; loaded: boolean } {
   return { balances, loaded }
 }
 
-async function readRemoteData(): Promise<Record<ModuleKey, WorkbookRow[]>> {
+async function readRemoteData(): Promise<RemoteSnapshot> {
   if (!supabase) throw new Error('Falta la configuración de Supabase.')
   const client = supabase
   async function readTable(table: string) {
@@ -443,7 +487,20 @@ async function readRemoteData(): Promise<Record<ModuleKey, WorkbookRow[]>> {
       throw new Error(module + ': ' + (error instanceof Error ? error.message : String(error)))
     }
   }))
-  return { ...emptyWorkbookData(), ...Object.fromEntries(entries) } as Record<ModuleKey, WorkbookRow[]>
+  const physicalCountsResult = await client.from(physicalInventoryCountTable).select('*').order('created_at', { ascending: true })
+  const physicalCountsError = physicalCountsResult.error ? physicalCountsResult.error.message : ''
+  const physicalCounts = (physicalCountsResult.data ?? []).map((row: Record<string, unknown>) => ({
+    id: String(row.id ?? ''),
+    code: String(row.codigo ?? '').trim(),
+    quantity: Number(row.cantidad_contada ?? 0),
+    countedAt: String(row.contado_at ?? row.created_at ?? ''),
+    note: row.nota == null ? null : String(row.nota),
+  })).filter((row: PhysicalInventoryCount) => Boolean(row.code) && Number.isFinite(row.quantity))
+  return {
+    data: { ...emptyWorkbookData(), ...Object.fromEntries(entries) } as Record<ModuleKey, WorkbookRow[]>,
+    physicalCounts,
+    physicalCountsError,
+  }
 }
 function fromRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   const next = { ...row }
@@ -878,8 +935,8 @@ function parseSavedValidationMovement(value: unknown): SavedValidationCreditMove
   }
 }
 
-function Menu({ data, balances, onNavigate }: { data: Record<ModuleKey, WorkbookRow[]>; balances: MonthlyBalance[]; onNavigate: (module: ModuleKey | 'MENU') => void }) {
-  const metrics = getMetrics(data)
+function Menu({ data, balances, physicalCounts, onNavigate }: { data: Record<ModuleKey, WorkbookRow[]>; balances: MonthlyBalance[]; physicalCounts: PhysicalInventoryCount[]; onNavigate: (module: ModuleKey | 'MENU') => void }) {
+  const metrics = getMetrics(data, physicalCounts)
   return <section className="page-content home-page">
     <div className="page-heading"><div><p className="eyebrow">HOJA PRINCIPAL</p><h1>MENU</h1><p className="page-description">Vista de control del libro Sportivos: inventarios, ventas, cartera y reportes.</p></div><span className="reference-badge">Fuente: SPORTIVOS (1) (1).xlsm</span></div>
     <div className="summary-grid">
@@ -1084,12 +1141,13 @@ function SummaryCard({ label, value, note, tone }: { label: string; value: strin
   return <article className="summary-card"><div className="summary-top"><span>{label}</span><span className={'summary-icon ' + tone}>*</span></div><strong>{value}</strong><small>{note}</small></article>
 }
 
-function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onDelete, deletingRecord, onNotice }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onDelete: (module: ModuleKey, row: WorkbookRow) => void; deletingRecord: string | null; onNotice: (message: string) => void }) {
+function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onPhysicalCount, onDelete, deletingRecord, onNotice, physicalCountsError }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onPhysicalCount: () => void; onDelete: (module: ModuleKey, row: WorkbookRow) => void; deletingRecord: string | null; onNotice: (message: string) => void; physicalCountsError: string }) {
   const columns = moduleColumns[module].filter((column) => column.key !== 'Columna1')
   const isReport = module === 'BALANCE'
   const canDelete = editableModules.has(module)
   return <section className="page-content">
-    <div className="page-heading"><div><p className="eyebrow">HOJA DEL LIBRO</p><h1>{module}</h1><p className="page-description">{moduleDescription(module)}</p></div>{editableModules.has(module) && <button className="primary-button" type="button" onClick={onNew}><span className="plus">+</span> Nuevo registro</button>}</div>
+    <div className="page-heading"><div><p className="eyebrow">HOJA DEL LIBRO</p><h1>{module}</h1><p className="page-description">{moduleDescription(module)}</p></div>{editableModules.has(module) && <div className="heading-actions">{module === 'INVENTARIO_PT' && <button className="secondary-button" type="button" onClick={onPhysicalCount}>Conteo físico</button>}<button className="primary-button" type="button" onClick={onNew}><span className="plus">+</span> Nuevo registro</button></div>}</div>
+    {module === 'INVENTARIO_PT' && physicalCountsError && <p className="form-error inventory-count-setup-warning">El botón de conteo físico necesita la tabla de Supabase. Ejecuta la migración indicada en el proyecto antes de guardar conteos.</p>}
     {isReport ? <ReportView data={data} /> : <section className={`catalog-card${module === 'CREDITOS' ? ' credit-catalog-card' : ''}`}>
       <div className={`catalog-header${module === 'CREDITOS' ? ' credit-catalog-header' : ''}`}>
         <div><h2>{module}</h2><p>{columns.length} columnas - {rows.length} de {totalRows} registros{module === 'CREDITOS' ? ' - orden cronológico según los filtros' : ' - busqueda en todos los campos'}</p></div>
@@ -1403,9 +1461,10 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
 
 function BalanceSection({ title, rows }: { title: string; rows: Array<[string, number, string?]> }) { return <section className="balance-section"><h3>{title}</h3>{rows.map(([label, amount, tone]) => <div key={label} className={`balance-row ${tone ? `balance-${tone}` : ''}`}><span>{label}</span><strong>{currency.format(amount)}</strong></div>)}</section> }
 
-function RecordForm({ module, data, periodPolicy, onClose, onSave }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; periodPolicy: PeriodPolicy; onClose: () => void; onSave: (row: WorkbookRow) => Promise<void> | void }) {
+function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, onClose, onSave }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; physicalCounts: PhysicalInventoryCount[]; periodPolicy: PeriodPolicy; onClose: () => void; onSave: (row: WorkbookRow) => Promise<void> | void }) {
   const isCreditForm = module === 'CREDITOS'
-  const columns = moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'VALOR_PRODUCTO', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS'))
+  const data = useMemo(() => ({ ...sourceData, INVENTARIO_PT: getRows('INVENTARIO_PT', sourceData, physicalCounts) }), [sourceData, physicalCounts])
+  const columns = moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'CONTEO_FISICO', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'VALOR_PRODUCTO', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS'))
   const clientNames = useMemo(() => Array.from(new Set([...data.CLIENTES, ...data.CREDITOS].map((row) => String(row.NOMBRE ?? '').trim()).filter(Boolean))), [data.CLIENTES, data.CREDITOS])
   const creditKeys = ['TIPO', 'FECHA', 'NOMBRE', 'CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO', 'VALOR', 'COMENTARIO', 'MEDIO PAGO']
   const [values, setValues] = useState<WorkbookRow>(() => Object.fromEntries(columns.map((column) => [column.key, column.type === 'date' ? localDateInputValue() : column.key === 'TIPO' ? CREDIT_TYPE : column.key === 'MES' && module === 'GASTOS' ? 'Otro' : column.key === 'COSTO FIJO' ? 500 : column.key === 'NOMBRE' && clientNames[0] ? clientNames[0] : column.type === 'number' ? '' : ''])) as WorkbookRow)
@@ -1429,7 +1488,7 @@ function RecordForm({ module, data, periodPolicy, onClose, onSave }: { module: M
   const refundValue = Math.max(0, returnValue - returnDebtPart)
   const transactionValue = isReturn ? returnValue : isCreditForm && isAbono ? Number(values.VALOR ?? 0) : Number(values.VALOR ?? 0) || calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO)
   const projectedDebt = currentDebt + (isReturn ? -returnDebtPart : isAbono ? -transactionValue : transactionValue)
-  const productRows = module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm ? getRows('INVENTARIO_PT', data) : []
+  const productRows = module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm ? getRows('INVENTARIO_PT', data, physicalCounts) : []
   const selectedProduct = productRows.find((row) => normalizeCode(row.CODIGO) === normalizeCode(values.CODIGO))
   const currentStock = Number(selectedProduct?.STOCK ?? 0)
   const projectedStock = module === 'ENTRADAS' || isReturn ? currentStock + lineQuantity : currentStock - lineQuantity
@@ -1537,18 +1596,80 @@ function RecordForm({ module, data, periodPolicy, onClose, onSave }: { module: M
   </div>
 }
 
-function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow[]>): WorkbookRow[] {
+function PhysicalInventoryCountModal({ data, counts, setupError, onClose, onSave }: { data: Record<ModuleKey, WorkbookRow[]>; counts: PhysicalInventoryCount[]; setupError: string; onClose: () => void; onSave: (values: Array<{ code: string; quantity: number; note: string }>) => Promise<boolean> }) {
+  const products = useMemo(() => getRows('INVENTARIO_PT', data, counts).filter((row) => String(row.CODIGO ?? '').trim()).sort((a, b) => String(a.CODIGO).localeCompare(String(b.CODIGO), 'es')), [data, counts])
+  const latestCounts = useMemo(() => latestPhysicalCountsByCode(counts), [counts])
+  const [search, setSearch] = useState('')
+  const [note, setNote] = useState('')
+  const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(products.map((row) => [normalizeCode(row.CODIGO), latestCounts.get(normalizeCode(row.CODIGO))?.quantity.toString() ?? ''])))
+  const [isSaving, setIsSaving] = useState(false)
+  const visibleProducts = products.filter((row) => `${row.CODIGO} ${row.DETALLE}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  const entered = products.filter((row) => values[normalizeCode(row.CODIGO)] !== '')
+  async function save() {
+    const invalid = entered.find((row) => !Number.isFinite(Number(values[normalizeCode(row.CODIGO)])) || Number(values[normalizeCode(row.CODIGO)]) < 0)
+    if (invalid) return
+    setIsSaving(true)
+    try {
+      const saved = await onSave(entered.map((row) => ({ code: String(row.CODIGO).trim(), quantity: Number(values[normalizeCode(row.CODIGO)]), note })))
+      if (saved) onClose()
+    } finally {
+      setIsSaving(false)
+    }
+  }
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSaving) onClose() }}>
+    <section className="modal physical-count-modal" role="dialog" aria-modal="true" aria-labelledby="physical-count-title">
+      <div className="modal-heading"><div><p className="eyebrow">AJUSTE OPERATIVO</p><h2 id="physical-count-title">Conteo físico</h2><p>Actualiza la existencia visible sin crear entradas, salidas ni movimientos de caja.</p></div><button className="close-button" type="button" onClick={onClose} disabled={isSaving} aria-label="Cerrar">×</button></div>
+      <div className="physical-count-callout"><strong>El balance no cambia.</strong><span>El conteo se guarda como una referencia de inventario. Los movimientos nuevos posteriores al conteo sí se reflejarán en el stock.</span></div>
+      {setupError && <p className="form-error">La tabla de conteos físicos todavía no está disponible en Supabase. Ejecuta la migración del proyecto y vuelve a cargar.</p>}
+      <div className="physical-count-toolbar"><input aria-label="Buscar producto para contar" placeholder="Buscar por código o detalle..." value={search} onChange={(event) => setSearch(event.target.value)} /><span>{entered.length} productos diligenciados</span></div>
+      <div className="table-wrap physical-count-table-wrap"><table><thead><tr><th>CÓDIGO</th><th>DETALLE</th><th>STOCK SISTEMA</th><th>CANTIDAD CONTADA</th><th>DIFERENCIA</th></tr></thead><tbody>{visibleProducts.map((row) => {
+        const code = normalizeCode(row.CODIGO)
+        const value = values[code] ?? ''
+        const difference = value === '' ? null : Number(value) - Number(row.STOCK ?? 0)
+        return <tr key={code}><td>{row.CODIGO}</td><td>{row.DETALLE}</td><td>{number.format(Number(row.STOCK ?? 0))}</td><td><input type="number" min="0" step="0.001" aria-label={`Cantidad contada ${String(row.CODIGO)}`} value={value} onChange={(event) => setValues((current) => ({ ...current, [code]: event.target.value }))} /></td><td className={difference === null ? '' : difference === 0 ? 'physical-count-equal' : 'physical-count-difference'}>{difference === null ? '-' : number.format(difference)}</td></tr>
+      })}</tbody></table></div>
+      <label className="physical-count-note">Nota del conteo<input value={note} onChange={(event) => setNote(event.target.value)} placeholder="Ej. Conteo manual del 4 de noviembre" maxLength={200} /></label>
+      <p className="form-hint">Deja en blanco los productos que no contaste. Para registrar cero, escribe 0.</p>
+      <div className="modal-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={isSaving}>Cancelar</button><button className="primary-button" type="button" onClick={() => void save()} disabled={isSaving || entered.length === 0 || Boolean(setupError)}>{isSaving ? 'Guardando...' : 'Guardar conteo'}</button></div>
+    </section>
+  </div>
+}
+
+function latestPhysicalCountsByCode(counts: PhysicalInventoryCount[]): Map<string, PhysicalInventoryCount> {
+  const latest = new Map<string, PhysicalInventoryCount>()
+  for (const count of counts) {
+    const code = normalizeCode(count.code)
+    if (!code) continue
+    const current = latest.get(code)
+    if (!current || Date.parse(count.countedAt) >= Date.parse(current.countedAt)) latest.set(code, count)
+  }
+  return latest
+}
+
+function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow[]>, physicalCounts: PhysicalInventoryCount[] = []): WorkbookRow[] {
   if (module === 'MENU') return []
   if (module === 'INVENTARIO_PT') {
     const entries = sumBy(data.ENTRADAS, 'CODIGO', 'CANTIDAD')
     const sales = sumBy(data.VENTAS, 'CODIGO', 'CANT')
     const credits = sumBy(data.CREDITOS.filter((row) => isCreditType(row.TIPO)), 'CODIGO', 'CANT')
     const returns = sumBy(data.CREDITOS.filter((row) => isReturnType(row.TIPO)), 'CODIGO', 'CANT')
+    const latestCounts = latestPhysicalCountsByCode(physicalCounts)
     return data.INVENTARIO_PT.map((row) => {
       const code = normalizeCode(row.CODIGO)
       const incoming = entries[code] ?? Number(row.ENTRADAS ?? 0)
       const outgoing = (sales[code] ?? 0) + (credits[code] ?? 0) - (returns[code] ?? 0)
-      return { ...row, ENTRADAS: incoming, SALIDAS: outgoing, STOCK: incoming - outgoing, GANANCIA: calculateInventoryProfit(row.PRECIO, row.COSTO) }
+      const count = latestCounts.get(code)
+      const calculatedStock = incoming - outgoing
+      const countDate = count ? Date.parse(count.countedAt) : Number.NaN
+      const movementsAfterCount = (rows: WorkbookRow[], valueKey: string) => rows
+        .filter((movement) => normalizeCode(movement.CODIGO) === code && rowCreatedAtValue(movement) > countDate)
+        .reduce((total, movement) => total + Number(movement[valueKey] ?? 0), 0)
+      const countedStock = count
+        ? count.quantity + movementsAfterCount(data.ENTRADAS, 'CANTIDAD') - movementsAfterCount(data.VENTAS, 'CANT')
+          - movementsAfterCount(data.CREDITOS.filter((item) => isCreditType(item.TIPO)), 'CANT')
+          + movementsAfterCount(data.CREDITOS.filter((item) => isReturnType(item.TIPO)), 'CANT')
+        : calculatedStock
+      return { ...row, ENTRADAS: incoming, SALIDAS: outgoing, STOCK: countedStock, CONTEO_FISICO: count?.quantity ?? null, GANANCIA: calculateInventoryProfit(row.PRECIO, row.COSTO) }
     })
   }
   if (module === 'CLIENTES') return data.CLIENTES.map((row) => ({ ...row, Columna1: getClientDebt(data.CREDITOS, String(row.NOMBRE ?? '').trim()) }))
@@ -1772,14 +1893,14 @@ function moduleDescription(module: ModuleKey): string {
   }
   return descriptions[module] ?? ''
 }
-function getMetrics(data: Record<ModuleKey, WorkbookRow[]>) {
+function getMetrics(data: Record<ModuleKey, WorkbookRow[]>, physicalCounts: PhysicalInventoryCount[] = []) {
   const sales = data.VENTAS.reduce((total, row) => total + Number(row.TOTAL ?? 0), 0)
   const cashSales = data.VENTAS.filter((row) => String(row.MEDIO_DE_PAGO).includes('Efectivo')).reduce((total, row) => total + Number(row.TOTAL ?? 0), 0)
   const transferSales = data.VENTAS.filter((row) => String(row.MEDIO_DE_PAGO).includes('Transferencia')).reduce((total, row) => total + Number(row.TOTAL ?? 0), 0)
   const expenses = data.GASTOS.reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const materialExpenses = data.GASTOS.filter((row) => getExpenseCode(row, data)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const creditsPaid = data.CREDITOS.filter((row) => row.TIPO === 'Abono').reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
-  const inventory = getRows('INVENTARIO_PT', data)
+  const inventory = getRows('INVENTARIO_PT', data, physicalCounts)
   const stock = inventory.reduce((total, row) => total + Number(row.STOCK ?? 0), 0)
   const stockValue = inventory.reduce((total, row) => total + Math.max(0, Number(row.STOCK ?? 0)) * Number(row.COSTO ?? 0), 0)
   return { products: data.INVENTARIO_PT.length, stock, stockValue, sales, cashSales, transferSales, expenses, materialExpenses, operatingExpenses: expenses - materialExpenses, creditsPaid }

@@ -42,7 +42,7 @@ export const moduleColumns: Record<ModuleKey, Column[]> = {
     { key: 'Costo MO', label: 'Costo MO', type: 'number' },
     { key: 'GANANCIA', label: 'GANANCIA', type: 'number' }, { key: 'ENTRADAS', label: 'ENTRADAS', type: 'number' },
     { key: 'SALIDAS', label: 'SALIDAS', type: 'number' }, { key: 'CONSIGNACION', label: 'CONSIGNACIÓN', type: 'number' },
-    { key: 'STOCK', label: 'STOCK', type: 'number' },
+    { key: 'STOCK', label: 'STOCK', type: 'number' }, { key: 'CONTEO_FISICO', label: 'CONTEO FISICO', type: 'number' },
   ],
   ENTRADAS: [
     { key: 'FECHA', label: 'FECHA', type: 'date', required: true }, { key: 'CODIGO', label: 'CODIGO', required: true },
