@@ -1524,7 +1524,19 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
     ? getRows('INVENTARIO_PT', data, physicalCounts).slice().sort(compareProductDetails)
     : []
   const costCatalogOptions: CodeSearchOption[] = module === 'COSTOS_NO_PRODUCIDOS'
-    ? data.COSTOS_NO_PRODUCIDOS.filter((row) => String(row.CODIGO ?? '').trim()).slice().sort(compareProductDetails).map((row) => ({ code: String(row.CODIGO), detail: String(row.DETALLE ?? ''), hint: `Costo ${currency.format(Number(row.COSTO ?? 0))}` }))
+    ? (() => {
+      const options = new Map<string, CodeSearchOption>()
+      data.INVENTARIO_PT.filter((row) => String(row.CODIGO ?? '').trim()).forEach((product) => {
+        const code = String(product.CODIGO).trim()
+        const currentCost = getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, code)
+        options.set(normalizeCode(code), { code, detail: String(product.DETALLE ?? ''), hint: currentCost ? `Costo actual ${currency.format(Number(currentCost.COSTO ?? 0))}` : 'Producto de INVENTARIO_PT' })
+      })
+      data.COSTOS_NO_PRODUCIDOS.filter((row) => String(row.CODIGO ?? '').trim()).forEach((cost) => {
+        const code = String(cost.CODIGO).trim()
+        if (!options.has(normalizeCode(code))) options.set(normalizeCode(code), { code, detail: String(cost.DETALLE ?? ''), hint: 'No existe en INVENTARIO_PT', disabled: true })
+      })
+      return [...options.values()].sort((a, b) => compareProductDetails({ DETALLE: a.detail, CODIGO: a.code }, { DETALLE: b.detail, CODIGO: b.code }))
+    })()
     : []
   const selectedProduct = productRows.find((row) => normalizeCode(row.CODIGO) === normalizeCode(values.CODIGO))
   const currentStock = Number(selectedProduct?.STOCK ?? 0)
@@ -1554,14 +1566,16 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
   }
   function updateCode(value: string) {
     const catalog = module === 'COSTOS_NO_PRODUCIDOS' ? data.COSTOS_NO_PRODUCIDOS : productRows
+    const inventoryProduct = module === 'COSTOS_NO_PRODUCIDOS' ? data.INVENTARIO_PT.find((row) => normalizeCode(row.CODIGO) === normalizeCode(value)) : undefined
     const match = catalog.find((row) => normalizeCode(row.CODIGO) === normalizeCode(value))
     const refundable = isReturn ? returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(value)) : undefined
-    setValues((current) => ({ ...current, CODIGO: value, DETALLE: String(match?.DETALLE ?? refundable?.detail ?? ''), ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(value, module, data)) } : {}) }))
+    setValues((current) => ({ ...current, CODIGO: value, DETALLE: String(inventoryProduct?.DETALLE ?? match?.DETALLE ?? refundable?.detail ?? ''), ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(value, module, data)) } : {}) }))
     setError('')
   }
   function chooseCode(option: CodeSearchOption) {
     const refundable = isReturn ? returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(option.code)) : undefined
-    setValues((current) => ({ ...current, CODIGO: option.code, DETALLE: option.detail, ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(option.code, module, data)) } : {}) }))
+    const existingCost = module === 'COSTOS_NO_PRODUCIDOS' ? getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, option.code) : undefined
+    setValues((current) => ({ ...current, CODIGO: option.code, DETALLE: option.detail, ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(option.code, module, data)) } : {}), ...(module === 'COSTOS_NO_PRODUCIDOS' ? existingCost ? { COSTO: String(existingCost.COSTO ?? ''), 'COSTO FIJO': String(existingCost['COSTO FIJO'] ?? 500), 'PRECIO AL PUBLICO': String(existingCost['PRECIO AL PUBLICO'] ?? '') } : { COSTO: '', 'PRECIO AL PUBLICO': '' } : {}) }))
     setError('')
   }
   function isDisabled(key: string) { return isCreditForm && isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(key) }
@@ -1586,6 +1600,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
     if (module === 'VENTAS' && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice <= 0 || !Number.isFinite(lineDiscount) || lineDiscount < 0 || lineDiscount >= lineQuantity * lineUnitPrice || !Number.isFinite(lineTotal))) { setError('La cantidad y el precio deben ser mayores a cero; el descuento debe ser válido y menor que el subtotal.'); return }
     if (module === 'GASTOS' && (!Number.isFinite(Number(values.VALOR)) || Number(values.VALOR) <= 0)) { setError('El valor del gasto debe ser mayor a cero.'); return }
     if (module === 'COSTOS_NO_PRODUCIDOS' && (!Number.isFinite(Number(values.COSTO)) || Number(values.COSTO) < 0 || !Number.isFinite(Number(values['PRECIO AL PUBLICO'])) || Number(values['PRECIO AL PUBLICO']) <= 0 || !Number.isFinite(Number(values['COSTO FIJO'] ?? 0)) || Number(values['COSTO FIJO'] ?? 0) < 0)) { setError('Los costos no pueden ser negativos y el precio al público debe ser mayor a cero.'); return }
+    if (module === 'COSTOS_NO_PRODUCIDOS' && !data.INVENTARIO_PT.some((product) => normalizeCode(product.CODIGO) === normalizeCode(values.CODIGO))) { setError('Selecciona un código que exista en INVENTARIO_PT para que el costo se actualice en ese producto.'); return }
     if (isCreditForm && !isReturn && (!Number.isFinite(transactionValue) || transactionValue <= 0)) { setError('Indica un valor válido mayor que cero.'); return }
     if (isCreditForm && !isReduction && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice <= 0 || !Number.isFinite(lineDiscount) || lineDiscount < 0 || lineDiscount >= lineQuantity * lineUnitPrice || !Number.isFinite(lineTotal))) { setError('La cantidad y el precio deben ser mayores a cero; el descuento debe ser válido y menor que el subtotal.'); return }
     if (isCreditForm && isReturn && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(returnValue) || returnValue <= 0)) { setError('La cantidad y el valor de la devolución deben ser mayores a cero.'); return }
@@ -1696,10 +1711,14 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
     const returns = sumBy(data.CREDITOS.filter((row) => isReturnType(row.TIPO)), 'CODIGO', 'CANT')
     return data.INVENTARIO_PT.map((row) => {
       const code = normalizeCode(row.CODIGO)
+      const cost = getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, code)
       const incoming = entries[code] ?? Number(row.ENTRADAS ?? 0)
       const outgoing = (sales[code] ?? 0) + (credits[code] ?? 0) - (returns[code] ?? 0)
       const calculatedStock = incoming - outgoing
-      return { ...row, ENTRADAS: incoming, SALIDAS: outgoing, STOCK: Number(row.STOCK ?? calculatedStock), GANANCIA: calculateInventoryProfit(row.PRECIO, row.COSTO) }
+      const price = cost ? Number(cost['PRECIO AL PUBLICO'] ?? row.PRECIO ?? 0) : row.PRECIO
+      const fixedCost = cost ? Number(cost['COSTO FIJO'] ?? 500) : row['Costo fijo']
+      const totalCost = cost ? Number(cost.COSTO ?? 0) + Number(cost['COSTO FIJO'] ?? 500) : row.COSTO
+      return { ...row, PRECIO: price, COSTO: totalCost, 'Costo fijo': fixedCost, ENTRADAS: incoming, SALIDAS: outgoing, STOCK: Number(row.STOCK ?? calculatedStock), GANANCIA: calculateInventoryProfit(price, totalCost) }
     })
   }
   if (module === 'CLIENTES') return data.CLIENTES.map((row) => ({ ...row, Columna1: getClientDebt(data.CREDITOS, String(row.NOMBRE ?? '').trim()) }))
@@ -1715,6 +1734,12 @@ function sumBy(rows: WorkbookRow[], groupKey: string, valueKey: string): Record<
   }, {})
 }
 function normalizeCode(value: CellValue): string { return String(value ?? '').trim().toLocaleLowerCase() }
+function getLatestProductCost(costs: WorkbookRow[], code: CellValue): WorkbookRow | undefined {
+  const key = normalizeCode(code)
+  if (!key) return undefined
+  // Remote rows arrive ordered by created_at ascending, so the newest cost for a product is last.
+  return costs.reduce<WorkbookRow | undefined>((latest, row) => normalizeCode(row.CODIGO) === key ? row : latest, undefined)
+}
 function compareProductDetails(a: WorkbookRow, b: WorkbookRow): number {
   return String(a.DETALLE ?? '').localeCompare(String(b.DETALLE ?? ''), 'es', { sensitivity: 'base' })
     || String(a.CODIGO ?? '').localeCompare(String(b.CODIGO ?? ''), 'es', { sensitivity: 'base' })
@@ -1772,8 +1797,9 @@ function validateAvailableStock(row: WorkbookRow, data: Record<ModuleKey, Workbo
 function productUnitPrice(code: CellValue, module: ModuleKey, data: Record<ModuleKey, WorkbookRow[]>): number {
   const key = normalizeCode(code)
   const product = data.INVENTARIO_PT.find((row) => normalizeCode(row.CODIGO) === key)
-  const cost = data.COSTOS_NO_PRODUCIDOS.find((row) => normalizeCode(row.CODIGO) === key)
-  return Number(module === 'ENTRADAS' ? product?.COSTO ?? cost?.['COSTO TOTAL'] ?? cost?.COSTO ?? 0 : product?.PRECIO ?? cost?.['PRECIO AL PUBLICO'] ?? 0)
+  const cost = getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, key)
+  if (module === 'ENTRADAS') return Number(cost ? cost['COSTO TOTAL'] ?? Number(cost.COSTO ?? 0) + Number(cost['COSTO FIJO'] ?? 0) : product?.COSTO ?? 0)
+  return Number(cost ? cost['PRECIO AL PUBLICO'] ?? product?.PRECIO ?? 0 : product?.PRECIO ?? 0)
 }
 function isCreditTypeLegacy(value: CellValue): boolean {
   const text = String(value ?? '').trim().toLowerCase()
@@ -1842,7 +1868,7 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
   })
   if (module === 'INVENTARIO_PT') {
     const code = String(next.CODIGO ?? '').trim().toLowerCase()
-    const cost = data.COSTOS_NO_PRODUCIDOS.find((item) => String(item.CODIGO ?? '').trim().toLowerCase() === code)
+    const cost = getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, code)
     const entryCount = sumBy(data.ENTRADAS, 'CODIGO', 'CANTIDAD')[code] ?? 0
     const saleCount = sumBy(data.VENTAS, 'CODIGO', 'CANT')[code] ?? 0
     const creditCount = sumBy(data.CREDITOS.filter((item) => isCreditType(item.TIPO)), 'CODIGO', 'CANT')[code] ?? 0
