@@ -794,7 +794,7 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
   const creditProducts = data.INVENTARIO_PT
     .filter((product) => String(product.CODIGO ?? '').trim())
     .slice()
-    .sort((a, b) => String(a.CODIGO).localeCompare(String(b.CODIGO), 'es'))
+    .sort(compareProductDetails)
   return <section className="page-content">
     <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Datos de validación actualizados desde el archivo CREDITOS (2).xlsm el 3 de noviembre de 2026, con personas, compras, abonos y saldos pendientes por hoja.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button><button className="primary-button" type="button" onClick={() => openMovementForm()} disabled={!periodPolicy.canRegister} title={periodPolicy.canRegister ? 'Registrar movimiento del mes en curso' : periodPolicy.message}><span className="plus">+</span> Registrar crédito o abono</button></div></div>
     {!periodPolicy.canRegister && <p className="sync-warning" role="alert">{periodPolicy.message}</p>}
@@ -1470,14 +1470,18 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
   const lineUnitPrice = Number(values.PRECIO ?? 0)
   const lineDiscount = module === 'ENTRADAS' ? 0 : Number(values.DESCUENTO ?? 0)
   const lineTotal = calculateLineTotal(lineQuantity, lineUnitPrice, lineDiscount)
-  const returnOptions = isReturn ? refundableProducts(data.CREDITOS, selectedClient) : []
+  const returnOptions = isReturn
+    ? refundableProducts(data.CREDITOS, selectedClient).sort((a, b) => String(a.detail ?? '').localeCompare(String(b.detail ?? ''), 'es', { sensitivity: 'base' }) || String(a.code).localeCompare(String(b.code), 'es', { sensitivity: 'base' }))
+    : []
   const selectedReturnOption = returnOptions.find((item) => normalizeCode(item.code) === normalizeCode(values.CODIGO))
   const proportionalUnpaid = selectedReturnOption ? selectedReturnOption.outstandingValue * Number(values.CANT ?? 0) / Math.max(1, selectedReturnOption.available) : 0
   const returnDebtPart = isReturn ? Math.min(currentDebt, returnValue, proportionalUnpaid) : 0
   const refundValue = Math.max(0, returnValue - returnDebtPart)
   const transactionValue = isReturn ? returnValue : isCreditForm && isAbono ? Number(values.VALOR ?? 0) : Number(values.VALOR ?? 0) || calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO)
   const projectedDebt = currentDebt + (isReturn ? -returnDebtPart : isAbono ? -transactionValue : transactionValue)
-  const productRows = module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm ? getRows('INVENTARIO_PT', data, physicalCounts) : []
+  const productRows = module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm
+    ? getRows('INVENTARIO_PT', data, physicalCounts).slice().sort(compareProductDetails)
+    : []
   const selectedProduct = productRows.find((row) => normalizeCode(row.CODIGO) === normalizeCode(values.CODIGO))
   const currentStock = Number(selectedProduct?.STOCK ?? 0)
   const projectedStock = module === 'ENTRADAS' || isReturn ? currentStock + lineQuantity : currentStock - lineQuantity
@@ -1654,6 +1658,10 @@ function sumBy(rows: WorkbookRow[], groupKey: string, valueKey: string): Record<
   }, {})
 }
 function normalizeCode(value: CellValue): string { return String(value ?? '').trim().toLocaleLowerCase() }
+function compareProductDetails(a: WorkbookRow, b: WorkbookRow): number {
+  return String(a.DETALLE ?? '').localeCompare(String(b.DETALLE ?? ''), 'es', { sensitivity: 'base' })
+    || String(a.CODIGO ?? '').localeCompare(String(b.CODIGO ?? ''), 'es', { sensitivity: 'base' })
+}
 function normalizeExpenseText(value: CellValue): string {
   return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
 }
