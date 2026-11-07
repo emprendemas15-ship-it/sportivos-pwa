@@ -1131,8 +1131,8 @@ function SummaryCard({ label, value, note, tone }: { label: string; value: strin
 
 function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onPhysicalCount, onDelete, deletingRecord, onNotice, physicalCountsError }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onPhysicalCount: () => void; onDelete: (module: ModuleKey, row: WorkbookRow) => void; deletingRecord: string | null; onNotice: (message: string) => void; physicalCountsError: string }) {
   const columns = moduleColumns[module].filter((column) => column.key !== 'Columna1' && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO_AL_POR_MAYOR', 'COSTO MO', 'CONSIGNACION'].includes(normalizeExpenseText(column.key).toUpperCase())))
-  const displayRows = module === 'INVENTARIO_PT'
-    ? [...rows].sort((a, b) => String(a.DETALLE ?? '').localeCompare(String(b.DETALLE ?? ''), 'es', { sensitivity: 'base' }))
+  const displayRows = module === 'INVENTARIO_PT' || module === 'COSTOS_NO_PRODUCIDOS'
+    ? [...rows].sort(compareProductDetails)
     : rows
   const isReport = module === 'BALANCE'
   const canDelete = editableModules.has(module)
