@@ -73,6 +73,28 @@
 .debt-preview span { color: #738177; font-size: 10px; }
 .debt-preview strong { color: #214c35; font-size: 16px; }
 .debt-preview .debt-negative { color: #b34a41; }
+
+/* Keep the workspace full-width; reveal navigation on hover/focus or by pinning it open. */
+.sidebar { width: 258px; transform: translateX(calc(-100% + 18px)); transition: transform .22s ease; will-change: transform; }
+.sidebar:hover, .sidebar:focus-within, .sidebar.sidebar-pinned { transform: translateX(0); }
+.sidebar:not(:hover):not(:focus-within):not(.sidebar-pinned) { pointer-events: auto; }
+.main-content { width: 100%; margin-left: 0; }
+.topbar { position: relative; z-index: 5; }
+.menu-toggle { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; padding: 0 9px !important; border: 1px solid #e5ebe6 !important; border-radius: 7px; color: #355b46 !important; background: #fff !important; font-size: 11px !important; font-weight: 750; cursor: pointer; }
+.menu-toggle:hover { border-color: #bfd2c3 !important; background: #f5f9f5 !important; }
+.sidebar-collapse { position: absolute; top: 34px; right: 11px; display: grid; width: 26px; height: 26px; place-items: center; border: 1px solid #e7ece7; border-radius: 6px; color: #65766b; background: #fff; font-size: 21px; line-height: 1; cursor: pointer; }
+@media (max-width: 760px) {
+  .sidebar { position: fixed; inset: 0 auto 0 0; width: min(290px, 86vw); height: 100dvh; flex-direction: column; align-items: stretch; padding: 20px 14px 16px; border-right: 1px solid #e6ece7; border-bottom: 0; }
+  .sidebar .nav-caption { display: block; }
+  .sidebar .main-nav { display: grid; }
+  .sidebar .sidebar-bottom { display: block; }
+  .sidebar .brand { width: calc(100% - 34px); }
+  .sidebar .brand-logo { width: 100%; }
+  .sidebar:not(.sidebar-pinned):not(:hover):not(:focus-within) { transform: translateX(calc(-100% + 18px)); }
+  .sidebar-collapse { top: 29px; }
+  .main-content { width: 100%; margin: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 .quantity-preview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 12px; padding: 14px; border: 1px solid #dce9df; border-radius: 8px; background: #f7fbf7; }
 .quantity-preview div { display: grid; gap: 5px; }
 .quantity-preview span { color: #738177; font-size: 10px; }
