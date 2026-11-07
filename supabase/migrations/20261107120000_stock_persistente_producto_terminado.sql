@@ -1,5 +1,14 @@
 -- Producto terminado now uses one authoritative, persisted balance.
 -- Historical movement rows are kept; the initial stock is deliberately reset.
+CREATE TABLE IF NOT EXISTS public.inventario_pt_stock_config (
+  id boolean PRIMARY KEY DEFAULT true CHECK (id),
+  initialized_at timestamptz NOT NULL
+);
+
+INSERT INTO public.inventario_pt_stock_config (id, initialized_at)
+VALUES (true, now())
+ON CONFLICT (id) DO UPDATE SET initialized_at = EXCLUDED.initialized_at;
+
 UPDATE public.inventario_pt SET "STOCK" = 0;
 
 CREATE OR REPLACE FUNCTION public.apply_inventario_pt_movement()
@@ -18,9 +27,18 @@ DECLARE
   delta numeric;
   movement_index integer;
   changed_rows integer;
+  stock_initialized_at timestamptz;
 BEGIN
   IF TG_OP IN ('UPDATE', 'DELETE') THEN old_row := to_jsonb(OLD); END IF;
   IF TG_OP IN ('INSERT', 'UPDATE') THEN new_row := to_jsonb(NEW); END IF;
+
+  SELECT initialized_at INTO stock_initialized_at
+  FROM public.inventario_pt_stock_config WHERE id = true;
+  IF TG_OP IN ('UPDATE', 'DELETE')
+     AND COALESCE(NULLIF(old_row->>'created_at', '')::timestamptz, '-infinity'::timestamptz) < stock_initialized_at THEN
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+  END IF;
 
   FOR movement_index IN 1..2 LOOP
     movement := CASE movement_index WHEN 1 THEN old_row ELSE new_row END;
