@@ -1523,6 +1523,11 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
   const productRows = module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm
     ? getRows('INVENTARIO_PT', data, physicalCounts).slice().sort(compareProductDetails)
     : []
+  const inventoryCodeOptions: CodeSearchOption[] = data.INVENTARIO_PT
+    .filter((row) => String(row.CODIGO ?? '').trim())
+    .slice()
+    .sort(compareProductDetails)
+    .map((row) => ({ code: String(row.CODIGO).trim(), detail: String(row.DETALLE ?? '') }))
   const costCatalogOptions: CodeSearchOption[] = module === 'COSTOS_NO_PRODUCIDOS'
     ? (() => {
       const options = new Map<string, CodeSearchOption>()
@@ -1565,8 +1570,8 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
     setError('')
   }
   function updateCode(value: string) {
-    const catalog = module === 'COSTOS_NO_PRODUCIDOS' ? data.COSTOS_NO_PRODUCIDOS : productRows
-    const inventoryProduct = module === 'COSTOS_NO_PRODUCIDOS' ? data.INVENTARIO_PT.find((row) => normalizeCode(row.CODIGO) === normalizeCode(value)) : undefined
+    const catalog = module === 'COSTOS_NO_PRODUCIDOS' ? data.COSTOS_NO_PRODUCIDOS : productRows.length ? productRows : data.INVENTARIO_PT
+    const inventoryProduct = data.INVENTARIO_PT.find((row) => normalizeCode(row.CODIGO) === normalizeCode(value))
     const match = catalog.find((row) => normalizeCode(row.CODIGO) === normalizeCode(value))
     const refundable = isReturn ? returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(value)) : undefined
     setValues((current) => ({ ...current, CODIGO: value, DETALLE: String(inventoryProduct?.DETALLE ?? match?.DETALLE ?? refundable?.detail ?? ''), ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(value, module, data)) } : {}) }))
@@ -1596,6 +1601,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
       const dateError = validateOperationalDate(values.FECHA, periodPolicy)
       if (dateError) { setError(dateError); return }
     }
+    if (module === 'ENTRADAS' && !data.INVENTARIO_PT.some((product) => normalizeCode(product.CODIGO) === normalizeCode(values.CODIGO))) { setError('El código debe existir en INVENTARIO_PT. Si es un producto nuevo, créalo primero en ese módulo.'); return }
     if (module === 'ENTRADAS' && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice < 0 || !Number.isFinite(lineTotal))) { setError('La cantidad debe ser mayor a cero, el precio no puede ser negativo y el total debe ser válido.'); return }
     if (module === 'VENTAS' && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice <= 0 || !Number.isFinite(lineDiscount) || lineDiscount < 0 || lineDiscount >= lineQuantity * lineUnitPrice || !Number.isFinite(lineTotal))) { setError('La cantidad y el precio deben ser mayores a cero; el descuento debe ser válido y menor que el subtotal.'); return }
     if (module === 'GASTOS' && (!Number.isFinite(Number(values.VALOR)) || Number(values.VALOR) <= 0)) { setError('El valor del gasto debe ser mayor a cero.'); return }
@@ -1628,12 +1634,11 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
         <div className="form-grid">{formColumns.map((column, index) => {
           const disabled = isDisabled(column.key)
           const customerSelect = isCreditForm && column.key === 'NOMBRE'
-          const codeSelect = column.key === 'CODIGO' && (module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm && !isAbono)
-          const codeSearch = column.key === 'CODIGO' && (codeSelect || module === 'COSTOS_NO_PRODUCIDOS')
-          const codeOptions: CodeSearchOption[] = module === 'COSTOS_NO_PRODUCIDOS' ? costCatalogOptions : isReturn ? returnOptions.map((item) => ({ code: item.code, detail: item.detail, hint: `${item.available} disp.` })) : productRows.map((item) => ({ code: String(item.CODIGO ?? ''), detail: String(item.DETALLE ?? ''), hint: `Stock ${Number(item.STOCK ?? 0)}`, disabled: module !== 'ENTRADAS' && Number(item.STOCK ?? 0) <= 0 }))
-          return <label key={column.key} className={disabled ? 'field-disabled' : ''}>{codeSearch ? module === 'COSTOS_NO_PRODUCIDOS' ? 'CÓDIGO (busca por código o detalle)' : 'CÓDIGO (busca por código o descripción)' : column.label}{isRequired(column) && <span>*</span>}
+          const codeSearch = column.key === 'CODIGO'
+          const codeOptions: CodeSearchOption[] = module === 'COSTOS_NO_PRODUCIDOS' ? costCatalogOptions : isReturn ? returnOptions.map((item) => ({ code: item.code, detail: item.detail, hint: `${item.available} disp.` })) : productRows.length ? productRows.map((item) => ({ code: String(item.CODIGO ?? ''), detail: String(item.DETALLE ?? ''), hint: `Stock ${Number(item.STOCK ?? 0)}`, disabled: module !== 'ENTRADAS' && Number(item.STOCK ?? 0) <= 0 })) : inventoryCodeOptions
+          return <label key={column.key} className={disabled ? 'field-disabled' : ''}>{codeSearch ? 'CÓDIGO (puedes escribirlo o buscar por detalle)' : column.label}{isRequired(column) && <span>*</span>}
             {customerSelect             ? <select required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">Selecciona un cliente</option>{clientNames.map((name) => <option key={name} value={name}>{name}</option>)}</select>
-              : codeSearch ? <SearchableCodeInput value={String(values.CODIGO ?? '')} options={codeOptions} onChange={updateCode} onSelect={chooseCode} allowCustom={module === 'COSTOS_NO_PRODUCIDOS'} required={isRequired(column)} disabled={disabled} placeholder={module === 'COSTOS_NO_PRODUCIDOS' ? 'Escribe o busca un código/detalle' : isReturn ? 'Busca por código o descripción' : 'Busca por código o descripción'} ariaLabel={`${column.label}: buscar código o detalle`} />
+              : codeSearch ? <SearchableCodeInput value={String(values.CODIGO ?? '')} options={codeOptions} onChange={updateCode} onSelect={chooseCode} allowCustom required={isRequired(column)} disabled={disabled} placeholder="Escribe un código o busca por detalle" ariaLabel={`${column.label}: escribir código o buscar por detalle`} />
             : column.type === 'select' ? <select disabled={disabled} required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">{column.key.includes('PAGO') ? 'Selecciona un medio de pago' : 'Selecciona una opción'}</option>{(column.options ?? []).map((option) => <option key={option}>{option}</option>)}</select>
               : <input disabled={disabled} required={isRequired(column)} autoFocus={index === 0} type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'} min={column.type === 'date' ? periodPolicy.firstDate : undefined} max={column.type === 'date' ? periodPolicy.today : undefined} step={column.type === 'number' ? 'any' : undefined} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)} placeholder={column.type === 'number' ? '0' : ''} />}
           </label>
@@ -1721,7 +1726,16 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
       return { ...row, PRECIO: price, COSTO: totalCost, 'Costo fijo': fixedCost, ENTRADAS: incoming, SALIDAS: outgoing, STOCK: Number(row.STOCK ?? calculatedStock), GANANCIA: calculateInventoryProfit(price, totalCost) }
     })
   }
-  if (module === 'CLIENTES') return data.CLIENTES.map((row) => ({ ...row, Columna1: getClientDebt(data.CREDITOS, String(row.NOMBRE ?? '').trim()) }))
+  if (module === 'CLIENTES') {
+    const clients = new Map<string, WorkbookRow>()
+    ;[...data.CLIENTES, ...data.CREDITOS.map((row) => ({ NOMBRE: row.NOMBRE }))].forEach((row) => {
+      const name = String(row.NOMBRE ?? '').trim()
+      const key = name.toLocaleLowerCase('es')
+      if (key && !clients.has(key)) clients.set(key, { ...row, NOMBRE: name })
+    })
+    const balances: WorkbookRow[] = [...clients.values()].map((row) => ({ ...row, Columna1: getClientDebt(data.CREDITOS, String(row.NOMBRE ?? '').trim()) }))
+    return balances.sort((a, b) => String(a.NOMBRE ?? '').localeCompare(String(b.NOMBRE ?? ''), 'es', { sensitivity: 'base' }))
+  }
   if (module === 'COSTOS_NO_PRODUCIDOS') return data.COSTOS_NO_PRODUCIDOS.map((row) => ({ ...row, 'COSTO TOTAL': Number(row.COSTO ?? 0) + Number(row['COSTO FIJO'] ?? 0), Columna1: Number(row['PRECIO AL PUBLICO'] ?? 0) - (Number(row.COSTO ?? 0) + Number(row['COSTO FIJO'] ?? 0)) }))
   return data[module]
 }
