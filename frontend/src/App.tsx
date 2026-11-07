@@ -28,7 +28,7 @@ const remoteTableByModule: Partial<Record<ModuleKey, string>> = {
 type SyncState = 'syncing' | 'synced' | 'error'
 type PhysicalInventoryCount = { id: string; code: string; quantity: number; countedAt: string; note: string | null }
 type RemoteSnapshot = { data: Record<ModuleKey, WorkbookRow[]>; physicalCounts: PhysicalInventoryCount[]; physicalCountsError: string }
-type CreditFilters = { name: string; type: string; from: string; to: string }
+type CreditFilters = { name: string; product: string; type: string; from: string; to: string }
 type ValidationCreditFormValues = {
   requestId: string
   personSheet: string
@@ -126,7 +126,7 @@ function App() {
   const [active, setActive] = useState<ModuleKey | 'MENU'>('MENU')
   const [sidebarPinned, setSidebarPinned] = useState(false)
   const [search, setSearch] = useState('')
-  const [creditFilters, setCreditFilters] = useState<CreditFilters>({ name: '', type: '', from: '', to: '' })
+  const [creditFilters, setCreditFilters] = useState<CreditFilters>({ name: '', product: '', type: '', from: '', to: '' })
   const [showForm, setShowForm] = useState(false)
   const [notice, setNotice] = useState('')
   const [deletingRecord, setDeletingRecord] = useState<string | null>(null)
@@ -1167,6 +1167,44 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
   </section>
 }
 
+type CodeSearchOption = { code: string; detail: string; hint?: string; disabled?: boolean }
+
+function SearchableCodeInput({ value, options, onChange, onSelect, allowCustom, required, disabled, placeholder, ariaLabel }: { value: string; options: CodeSearchOption[]; onChange: (value: string) => void; onSelect: (option: CodeSearchOption) => void; allowCustom?: boolean; required?: boolean; disabled?: boolean; placeholder: string; ariaLabel: string }) {
+  const [query, setQuery] = useState(value)
+  const [isOpen, setIsOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  useEffect(() => setQuery(value), [value])
+  const needle = query.trim().toLocaleLowerCase('es')
+  const matchingOptions = options.filter((option) => !needle || `${option.code} ${option.detail}`.toLocaleLowerCase('es').includes(needle)).slice(0, 40)
+  const choose = (option: CodeSearchOption) => {
+    if (option.disabled) return
+    setQuery(option.code)
+    setIsOpen(false)
+    setActiveIndex(-1)
+    onSelect(option)
+  }
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown' && matchingOptions.length) {
+      event.preventDefault()
+      setIsOpen(true)
+      setActiveIndex((index) => Math.min(index + 1, matchingOptions.length - 1))
+    } else if (event.key === 'ArrowUp' && matchingOptions.length) {
+      event.preventDefault()
+      setIsOpen(true)
+      setActiveIndex((index) => Math.max(index - 1, 0))
+    } else if (event.key === 'Enter' && isOpen && matchingOptions.length) {
+      event.preventDefault()
+      choose(matchingOptions[activeIndex] ?? matchingOptions[0])
+    } else if (event.key === 'Escape') setIsOpen(false)
+  }
+  return <div className="code-search-field">
+    <input type="text" role="combobox" aria-label={ariaLabel} aria-autocomplete="list" aria-expanded={isOpen} aria-controls="code-search-options" aria-activedescendant={isOpen && activeIndex >= 0 ? `code-search-option-${activeIndex}` : undefined} autoComplete="off" required={required} disabled={disabled} value={query} placeholder={placeholder} onFocus={() => setIsOpen(true)} onBlur={() => window.setTimeout(() => setIsOpen(false), 140)} onChange={(event) => { const next = event.target.value; setQuery(next); setActiveIndex(-1); setIsOpen(true); onChange(next) }} onKeyDown={handleKeyDown} />
+    {isOpen && (matchingOptions.length > 0 || !allowCustom) && <div className="code-search-options" id="code-search-options" role="listbox" aria-label="Códigos y detalles">
+      {matchingOptions.length ? matchingOptions.map((option, index) => <button key={`${option.code}-${index}`} id={`code-search-option-${index}`} type="button" role="option" aria-selected={index === activeIndex} disabled={option.disabled} className={index === activeIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}><strong>{option.code}</strong><span>{option.detail}</span>{option.hint && <small>{option.hint}</small>}</button>) : <span className="code-search-empty">No hay coincidencias en el inventario</span>}
+    </div>}
+  </div>
+}
+
 function CreditFilterControls({ rows, filters, onChange }: { rows: WorkbookRow[]; filters: CreditFilters; onChange: (filters: CreditFilters) => void }) {
   const [isNameOptionsOpen, setIsNameOptionsOpen] = useState(false)
   const [activeNameIndex, setActiveNameIndex] = useState(-1)
@@ -1209,10 +1247,11 @@ function CreditFilterControls({ rows, filters, onChange }: { rows: WorkbookRow[]
         {matchingNames.length ? matchingNames.map((name, index) => <button key={name} id={`credit-client-option-${index}`} type="button" role="option" aria-selected={filters.name === name} className={index === activeNameIndex ? 'active' : ''} onPointerDown={(event) => event.preventDefault()} onMouseDown={(event) => event.preventDefault()} onClick={() => { update('name', name); setIsNameOptionsOpen(false) }}>{name}</button>) : <span className="client-name-empty">No hay clientes coincidentes</span>}
       </div>}
     </div></label>
+    <label>Código o detalle<input aria-label="Buscar créditos por código o detalle" type="search" placeholder="Ej. JGT o juguete" value={filters.product} onChange={(event) => update('product', event.target.value)} /></label>
     <label>Tipo<select aria-label="Filtrar créditos por tipo" value={filters.type} onChange={(event) => update('type', event.target.value)}><option value="">Todos los tipos</option>{types.map((type) => <option key={type} value={type}>{type}</option>)}</select></label>
     <label>Desde<input aria-label="Fecha desde" type="date" value={filters.from} onChange={(event) => update('from', event.target.value)} /></label>
     <label>Hasta<input aria-label="Fecha hasta" type="date" value={filters.to} onChange={(event) => update('to', event.target.value)} /></label>
-    <div className="credit-filter-actions"><div className="credit-date-presets"><button type="button" onClick={() => setDateRange('month')}>Este mes</button><button type="button" onClick={() => setDateRange('30days')}>Últimos 30 días</button></div>{hasFilters && <button type="button" className="clear-credit-filters" onClick={() => onChange({ name: '', type: '', from: '', to: '' })}>Limpiar filtros</button>}</div>
+    <div className="credit-filter-actions"><div className="credit-date-presets"><button type="button" onClick={() => setDateRange('month')}>Este mes</button><button type="button" onClick={() => setDateRange('30days')}>Últimos 30 días</button></div>{hasFilters && <button type="button" className="clear-credit-filters" onClick={() => onChange({ name: '', product: '', type: '', from: '', to: '' })}>Limpiar filtros</button>}</div>
   </div>
 }
 
@@ -1484,6 +1523,9 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
   const productRows = module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm
     ? getRows('INVENTARIO_PT', data, physicalCounts).slice().sort(compareProductDetails)
     : []
+  const costCatalogOptions: CodeSearchOption[] = module === 'COSTOS_NO_PRODUCIDOS'
+    ? data.COSTOS_NO_PRODUCIDOS.filter((row) => String(row.CODIGO ?? '').trim()).slice().sort(compareProductDetails).map((row) => ({ code: String(row.CODIGO), detail: String(row.DETALLE ?? ''), hint: `Costo ${currency.format(Number(row.COSTO ?? 0))}` }))
+    : []
   const selectedProduct = productRows.find((row) => normalizeCode(row.CODIGO) === normalizeCode(values.CODIGO))
   const currentStock = Number(selectedProduct?.STOCK ?? 0)
   const projectedStock = module === 'ENTRADAS' || isReturn ? currentStock + lineQuantity : currentStock - lineQuantity
@@ -1508,6 +1550,18 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
       }
       return next
     })
+    setError('')
+  }
+  function updateCode(value: string) {
+    const catalog = module === 'COSTOS_NO_PRODUCIDOS' ? data.COSTOS_NO_PRODUCIDOS : productRows
+    const match = catalog.find((row) => normalizeCode(row.CODIGO) === normalizeCode(value))
+    const refundable = isReturn ? returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(value)) : undefined
+    setValues((current) => ({ ...current, CODIGO: value, DETALLE: String(match?.DETALLE ?? refundable?.detail ?? ''), ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(value, module, data)) } : {}) }))
+    setError('')
+  }
+  function chooseCode(option: CodeSearchOption) {
+    const refundable = isReturn ? returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(option.code)) : undefined
+    setValues((current) => ({ ...current, CODIGO: option.code, DETALLE: option.detail, ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(option.code, module, data)) } : {}) }))
     setError('')
   }
   function isDisabled(key: string) { return isCreditForm && isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(key) }
@@ -1560,10 +1614,11 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
           const disabled = isDisabled(column.key)
           const customerSelect = isCreditForm && column.key === 'NOMBRE'
           const codeSelect = column.key === 'CODIGO' && (module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm && !isAbono)
-          const codeOptions = isReturn ? returnOptions.map((item) => ({ code: item.code, label: `${item.code} · ${item.detail} · ${item.available} disp.`, disabled: false })) : productRows.map((item) => ({ code: String(item.CODIGO ?? ''), label: `${String(item.CODIGO ?? '')} · ${String(item.DETALLE ?? '')} · stock ${Number(item.STOCK ?? 0)}`, disabled: module !== 'ENTRADAS' && Number(item.STOCK ?? 0) <= 0 }))
-          return <label key={column.key} className={disabled ? 'field-disabled' : ''}>{column.label}{isRequired(column) && <span>*</span>}
+          const codeSearch = column.key === 'CODIGO' && (codeSelect || module === 'COSTOS_NO_PRODUCIDOS')
+          const codeOptions: CodeSearchOption[] = module === 'COSTOS_NO_PRODUCIDOS' ? costCatalogOptions : isReturn ? returnOptions.map((item) => ({ code: item.code, detail: item.detail, hint: `${item.available} disp.` })) : productRows.map((item) => ({ code: String(item.CODIGO ?? ''), detail: String(item.DETALLE ?? ''), hint: `Stock ${Number(item.STOCK ?? 0)}`, disabled: module !== 'ENTRADAS' && Number(item.STOCK ?? 0) <= 0 }))
+          return <label key={column.key} className={disabled ? 'field-disabled' : ''}>{codeSearch ? module === 'COSTOS_NO_PRODUCIDOS' ? 'CÓDIGO (busca por código o detalle)' : 'CÓDIGO (busca por código o descripción)' : column.label}{isRequired(column) && <span>*</span>}
             {customerSelect             ? <select required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">Selecciona un cliente</option>{clientNames.map((name) => <option key={name} value={name}>{name}</option>)}</select>
-              : codeSelect ? <select required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => { const code = event.target.value; const product = productRows.find((row) => normalizeCode(row.CODIGO) === normalizeCode(code)); const refundable = returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(code)); setValues((current) => ({ ...current, CODIGO: code, DETALLE: String(product?.DETALLE ?? refundable?.detail ?? ''), PRECIO: String(refundable?.unitPrice ?? productUnitPrice(code, module, data)) })); setError(''); }}>{isReturn ? <option value="">Elige un código que el cliente llevó</option> : <option value="">Selecciona un código del inventario</option>}{codeOptions.map((option) => <option key={option.code} value={option.code} disabled={option.disabled}>{option.label}</option>)}</select>
+              : codeSearch ? <SearchableCodeInput value={String(values.CODIGO ?? '')} options={codeOptions} onChange={updateCode} onSelect={chooseCode} allowCustom={module === 'COSTOS_NO_PRODUCIDOS'} required={isRequired(column)} disabled={disabled} placeholder={module === 'COSTOS_NO_PRODUCIDOS' ? 'Escribe o busca un código/detalle' : isReturn ? 'Busca por código o descripción' : 'Busca por código o descripción'} ariaLabel={`${column.label}: buscar código o detalle`} />
             : column.type === 'select' ? <select disabled={disabled} required={isRequired(column)} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)}><option value="">{column.key.includes('PAGO') ? 'Selecciona un medio de pago' : 'Selecciona una opción'}</option>{(column.options ?? []).map((option) => <option key={option}>{option}</option>)}</select>
               : <input disabled={disabled} required={isRequired(column)} autoFocus={index === 0} type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'} min={column.type === 'date' ? periodPolicy.firstDate : undefined} max={column.type === 'date' ? periodPolicy.today : undefined} step={column.type === 'number' ? 'any' : undefined} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)} placeholder={column.type === 'number' ? '0' : ''} />}
           </label>
@@ -1754,14 +1809,16 @@ function rowCreatedAtValue(row: WorkbookRow): number {
 }
 function filterCreditRows(rows: WorkbookRow[], filters: CreditFilters): WorkbookRow[] {
   const name = filters.name.trim().toLocaleLowerCase()
+  const product = filters.product.trim().toLocaleLowerCase()
   const type = filters.type.trim().toLocaleLowerCase()
   const from = filters.from ? rowDateValue(filters.from) : Number.NEGATIVE_INFINITY
   const to = filters.to ? rowDateValue(filters.to) + 86400000 : Number.POSITIVE_INFINITY
   const matchingRows = rows.filter((row) => {
     const rowName = String(row.NOMBRE ?? '').trim().toLocaleLowerCase()
+    const rowProduct = `${String(row.CODIGO ?? '')} ${String(row.DETALLE ?? '')}`.toLocaleLowerCase()
     const rowType = String(row.TIPO ?? '').trim().toLocaleLowerCase()
     const date = rowDateValue(row.FECHA)
-    return (!name || rowName.includes(name)) && (!type || rowType === type) && date >= from && date < to
+    return (!name || rowName.includes(name)) && (!product || rowProduct.includes(product)) && (!type || rowType === type) && date >= from && date < to
   })
   const matchingPeople = new Set(matchingRows.map((row) => String(row.NOMBRE ?? '').trim().toLocaleLowerCase()).filter(Boolean))
   const chronological = Boolean(name) && matchingPeople.size === 1
