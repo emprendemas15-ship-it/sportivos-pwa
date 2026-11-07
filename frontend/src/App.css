@@ -263,11 +263,12 @@
 .validation-credit-modal .modal-actions .primary-button:disabled { opacity: .6; cursor: not-allowed; }
 .credit-record-row { cursor: default; }
 .credit-action-cell { white-space: nowrap; }
-@media (max-width: 1280px) {
+.credits-table { min-width: 1420px; }
+@media (max-width: 760px) {
   .credit-catalog-card { overflow: visible; }
   .credit-catalog-header { align-items: stretch; flex-direction: column; gap: 15px; }
   .credit-catalog-card .credit-filters { width: 100%; max-width: none; }
-  .credits-table { display: block; width: 100%; }
+  .credits-table { display: block; width: 100%; min-width: 0; }
   .credits-table thead { display: none; }
   .credits-table tbody { display: grid; gap: 11px; padding: 0 14px 14px; }
   .credits-table .credit-record-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; border: 1px solid #e6ece7; border-radius: 9px; background: #fff; box-shadow: 0 2px 6px #173a2508; }
