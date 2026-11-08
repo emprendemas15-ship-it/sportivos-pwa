@@ -251,6 +251,14 @@
 .validation-credit-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .validation-credit-form-grid label { display: grid; min-width: 0; gap: 6px; color: #58675e; font-size: 11px; font-weight: 700; }
 .validation-credit-form-grid input, .validation-credit-form-grid select { width: 100%; min-width: 0; height: 40px; padding: 0 10px; border: 1px solid #dfe7df; border-radius: 6px; color: #34463a; background: #fff; font: inherit; font-size: 12px; }
+.validation-credit-person-search { position: relative; min-width: 0; }
+.validation-credit-person-search > input { width: 100%; min-width: 0; height: 40px; padding: 0 10px; border: 1px solid #dfe7df; border-radius: 6px; color: #34463a; background: #fff; font: inherit; font-size: 12px; }
+.validation-credit-person-options { position: absolute; top: calc(100% + 4px); left: 0; z-index: 14; display: grid; width: 100%; max-height: 250px; overflow-y: auto; padding: 4px; border: 1px solid #dfe7df; border-radius: 7px; background: #fff; box-shadow: 0 9px 24px #173a2524; }
+.validation-credit-person-options button { display: flex; min-height: 38px; flex-direction: column; justify-content: center; gap: 2px; padding: 6px 9px; border: 0; border-radius: 5px; color: #34463a; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+.validation-credit-person-options button:hover, .validation-credit-person-options button.active { background: #edf6ef; }
+.validation-credit-person-options button strong { font-size: 12px; }
+.validation-credit-person-options button span, .validation-credit-person-empty { color: #75847a; font-size: 10px; }
+.validation-credit-person-empty { padding: 10px; }
 .validation-credit-type { display: flex; gap: 20px; margin: 17px 0; padding: 12px; border: 1px solid #e4ebe4; border-radius: 7px; }
 .validation-credit-type legend { padding: 0 5px; color: #58675e; font-size: 11px; font-weight: 700; }
 .validation-credit-type label { display: inline-flex; align-items: center; gap: 7px; color: #3e5546; font-size: 12px; }
