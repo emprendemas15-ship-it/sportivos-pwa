@@ -124,7 +124,7 @@ function App() {
   const { balances: balanceHistory, loaded: balancesLoaded } = useSavedBalances()
   const periodPolicy = useMemo(() => buildPeriodPolicy(balanceHistory, balancesLoaded, data), [balanceHistory, balancesLoaded, data])
   const [active, setActive] = useState<ModuleKey | 'MENU'>('MENU')
-  const [sidebarPinned, setSidebarPinned] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [creditFilters, setCreditFilters] = useState<CreditFilters>({ name: '', product: '', type: '', from: '', to: '' })
   const [showForm, setShowForm] = useState(false)
@@ -158,6 +158,7 @@ function App() {
 
   function navigate(next: ModuleKey | 'MENU') {
     setActive(next)
+    setSidebarOpen(false)
     setSearch('')
     setShowForm(false)
   }
@@ -284,11 +285,10 @@ function App() {
   const connectionLabel = connectionStatus === 'offline' ? 'Sin conexión' : connectionStatus === 'blocked' ? 'En línea · no guarda' : connectionStatus === 'checking' ? 'Conectando…' : 'En línea · listo'
 
   return <div className="app-shell">
-    <aside className={'sidebar' + (sidebarPinned ? ' sidebar-pinned' : '')}>
+    <aside className={'sidebar' + (sidebarOpen ? ' sidebar-open' : '')} onPointerLeave={(event) => { if (event.pointerType === 'mouse') setSidebarOpen(false) }} onFocusCapture={() => setSidebarOpen(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSidebarOpen(false) }}>
       <button className="brand" type="button" onClick={() => navigate('MENU')} aria-label="Volver al menu">
         <img className="brand-logo" src={`${import.meta.env.BASE_URL}logo-sportivos.png`} alt="Tienda Sportivo's" />
       </button>
-      <button className="sidebar-collapse" type="button" onClick={() => setSidebarPinned(false)} aria-label="Ocultar menú" title="Ocultar menú">‹</button>
       <p className="nav-caption">HOJAS DEL EXCEL</p>
       <nav className="main-nav" aria-label="Navegacion principal">
         {['PRINCIPAL', 'INVENTARIOS', 'MOVIMIENTOS', 'CARTERA', 'COSTOS', 'REPORTES'].map((group) => <div key={group} className="nav-group">
@@ -304,7 +304,7 @@ function App() {
     </aside>
     <main className="main-content">
       <header className="topbar">
-        <div className="breadcrumb"><button className="menu-toggle" type="button" onClick={() => setSidebarPinned((pinned) => !pinned)} aria-expanded={sidebarPinned} aria-label={sidebarPinned ? 'Fijar menú abierto' : 'Abrir menú'} title={sidebarPinned ? 'Fijar menú abierto' : 'Abrir menú'}>☰ <span>MENÚ</span></button><span>/</span><strong>{active}</strong></div>
+        <div className="breadcrumb"><button className="menu-toggle" type="button" onClick={() => setSidebarOpen((open) => !open)} aria-expanded={sidebarOpen} aria-label={sidebarOpen ? 'Ocultar menú' : 'Abrir menú'} title={sidebarOpen ? 'Ocultar menú' : 'Abrir menú'}>☰ <span>MENÚ</span></button><span>/</span><strong>{active}</strong></div>
         <div className="topbar-right"><span className="connection" data-state={connectionStatus} role="status" aria-live="polite" title={connectionStatus === 'online' ? 'Conectado con la base compartida; puedes guardar registros.' : connectionStatus === 'blocked' ? 'La base responde, pero el último intento de guardar falló. Puedes reintentar después de revisar el aviso.' : connectionStatus === 'offline' ? 'No se pudo conectar con la base compartida.' : 'Comprobando la conexión con la base compartida.'}><i aria-hidden="true" /><span>{connectionLabel}</span></span><button className="refresh-button" type="button" onClick={() => void refreshAll(true)} title="Volver a cargar los datos y recalcular existencias">Actualizar</button></div>
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
