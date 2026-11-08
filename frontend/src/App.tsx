@@ -164,6 +164,13 @@ function App() {
 
   async function saveRow(row: WorkbookRow) {
     if (active === 'MENU' || active === 'BALANCE') return
+    if (active === 'INVENTARIO_PT') {
+      const identityError = validateProductIdentity(row, data.INVENTARIO_PT)
+      if (identityError) {
+        flashNotice('No se guardó: ' + identityError)
+        return
+      }
+    }
     if (syncState !== 'synced') {
       flashNotice('No se guardó: espera a que aparezca la conexión con la base compartida.')
       return
@@ -1512,6 +1519,10 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
   const lineUnitPrice = Number(values.PRECIO ?? 0)
   const lineDiscount = module === 'ENTRADAS' ? 0 : Number(values.DESCUENTO ?? 0)
   const lineTotal = calculateLineTotal(lineQuantity, lineUnitPrice, lineDiscount)
+  const costPurchaseValue = Number(values.COSTO ?? 0)
+  const costFixedValue = Number(values['COSTO FIJO'] ?? 0)
+  const costTotalValue = costPurchaseValue + costFixedValue
+  const costMarginValue = Number(values['PRECIO AL PUBLICO'] ?? 0) - costTotalValue
   const returnOptions = isReturn
     ? refundableProducts(data.CREDITOS, selectedClient).sort((a, b) => String(a.detail ?? '').localeCompare(String(b.detail ?? ''), 'es', { sensitivity: 'base' }) || String(a.code).localeCompare(String(b.code), 'es', { sensitivity: 'base' }))
     : []
@@ -1575,13 +1586,13 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
     const inventoryProduct = data.INVENTARIO_PT.find((row) => normalizeCode(row.CODIGO) === normalizeCode(value))
     const match = catalog.find((row) => normalizeCode(row.CODIGO) === normalizeCode(value))
     const refundable = isReturn ? returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(value)) : undefined
-    setValues((current) => ({ ...current, CODIGO: value, DETALLE: String(inventoryProduct?.DETALLE ?? match?.DETALLE ?? refundable?.detail ?? ''), ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(value, module, data)) } : {}) }))
+    setValues((current) => ({ ...current, CODIGO: value, DETALLE: String(inventoryProduct?.DETALLE ?? match?.DETALLE ?? refundable?.detail ?? ''), ...(isCreditForm || module === 'ENTRADAS' ? { PRECIO: String(isCreditForm && refundable ? refundable.unitPrice : productUnitPrice(value, module, data)) } : {}) }))
     setError('')
   }
   function chooseCode(option: CodeSearchOption) {
     const refundable = isReturn ? returnOptions.find((row) => normalizeCode(row.code) === normalizeCode(option.code)) : undefined
     const existingCost = module === 'COSTOS_NO_PRODUCIDOS' ? getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, option.code) : undefined
-    setValues((current) => ({ ...current, CODIGO: option.code, DETALLE: option.detail, ...(isCreditForm ? { PRECIO: String(refundable?.unitPrice ?? productUnitPrice(option.code, module, data)) } : {}), ...(module === 'COSTOS_NO_PRODUCIDOS' ? existingCost ? { COSTO: String(existingCost.COSTO ?? ''), 'COSTO FIJO': String(existingCost['COSTO FIJO'] ?? 500), 'PRECIO AL PUBLICO': String(existingCost['PRECIO AL PUBLICO'] ?? '') } : { COSTO: '', 'PRECIO AL PUBLICO': '' } : {}) }))
+    setValues((current) => ({ ...current, CODIGO: option.code, DETALLE: option.detail, ...(isCreditForm || module === 'ENTRADAS' ? { PRECIO: String(isCreditForm && refundable ? refundable.unitPrice : productUnitPrice(option.code, module, data)) } : {}), ...(module === 'COSTOS_NO_PRODUCIDOS' ? existingCost ? { COSTO: String(existingCost.COSTO ?? ''), 'COSTO FIJO': String(existingCost['COSTO FIJO'] ?? 500), 'PRECIO AL PUBLICO': String(existingCost['PRECIO AL PUBLICO'] ?? '') } : { COSTO: '', 'PRECIO AL PUBLICO': '' } : {}) }))
     setError('')
   }
   function isDisabled(key: string) { return isCreditForm && isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(key) }
@@ -1601,6 +1612,10 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
     if (datedOperationalModules.has(module)) {
       const dateError = validateOperationalDate(values.FECHA, periodPolicy)
       if (dateError) { setError(dateError); return }
+    }
+    if (module === 'INVENTARIO_PT') {
+      const identityError = validateProductIdentity(values, data.INVENTARIO_PT)
+      if (identityError) { setError(identityError); return }
     }
     if (module === 'ENTRADAS' && !data.INVENTARIO_PT.some((product) => normalizeCode(product.CODIGO) === normalizeCode(values.CODIGO))) { setError('El código debe existir en INVENTARIO_PT. Si es un producto nuevo, créalo primero en ese módulo.'); return }
     if (module === 'ENTRADAS' && (!Number.isFinite(lineQuantity) || lineQuantity <= 0 || !Number.isFinite(lineUnitPrice) || lineUnitPrice < 0 || !Number.isFinite(lineTotal))) { setError('La cantidad debe ser mayor a cero, el precio no puede ser negativo y el total debe ser válido.'); return }
@@ -1644,6 +1659,15 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
               : <input disabled={disabled} required={isRequired(column)} autoFocus={index === 0} type={column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : 'text'} min={column.type === 'date' ? periodPolicy.firstDate : undefined} max={column.type === 'date' ? periodPolicy.today : undefined} step={column.type === 'number' ? 'any' : undefined} value={String(values[column.key] ?? '')} onChange={(event) => update(column.key, event.target.value)} placeholder={column.type === 'number' ? '0' : ''} />}
           </label>
         })}</div>
+        {module === 'COSTOS_NO_PRODUCIDOS' && String(values.CODIGO ?? '').trim() && <>
+          <div className="quantity-preview cost-preview" aria-live="polite">
+            <div><span>Costo de compra</span><strong>{currency.format(costPurchaseValue)}</strong></div>
+            <div><span>Costo fijo</span><strong>{currency.format(costFixedValue)}</strong></div>
+            <div><span>Costo total</span><strong>{currency.format(costTotalValue)}</strong></div>
+            <div><span>Margen al público</span><strong className={costMarginValue < 0 ? 'debt-negative' : ''}>{currency.format(costMarginValue)}</strong></div>
+          </div>
+          <p className="form-hint">El costo actualiza los valores del producto para futuras entradas y ventas/créditos. Guardar un costo no registra mercancía ni cambia por sí solo el balance.</p>
+        </>}
         {module === 'INVENTARIO_PT' && <p className="form-hint">PRECIO, costo y existencias son calculados. Los costos se consultan en COSTOS_NO_PRODUCIDOS; las hojas de costos ocultas y consignaciones no se cargan en esta PWA.</p>}
         {module === 'GASTOS' && <p className="form-hint">Si el detalle coincide con un producto del catálogo COSTOS_NO_PRODUCIDOS, el balance lo clasifica automáticamente; los demás se cuentan como gastos operativos.</p>}
         {isCreditForm && <div className="debt-preview" aria-live="polite">
@@ -1737,7 +1761,25 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
     const balances: WorkbookRow[] = [...clients.values()].map((row) => ({ ...row, Columna1: getClientDebt(data.CREDITOS, String(row.NOMBRE ?? '').trim(), data.CLIENTES) }))
     return balances.sort((a, b) => String(a.NOMBRE ?? '').localeCompare(String(b.NOMBRE ?? ''), 'es', { sensitivity: 'base' }))
   }
-  if (module === 'COSTOS_NO_PRODUCIDOS') return data.COSTOS_NO_PRODUCIDOS.map((row) => ({ ...row, 'COSTO TOTAL': Number(row.COSTO ?? 0) + Number(row['COSTO FIJO'] ?? 0), Columna1: Number(row['PRECIO AL PUBLICO'] ?? 0) - (Number(row.COSTO ?? 0) + Number(row['COSTO FIJO'] ?? 0)) }))
+  if (module === 'COSTOS_NO_PRODUCIDOS') {
+    const latestByCode = new Map<string, WorkbookRow>()
+    const withoutCode: WorkbookRow[] = []
+    data.COSTOS_NO_PRODUCIDOS.forEach((row) => {
+      const code = normalizeCode(row.CODIGO)
+      if (code) latestByCode.set(code, row)
+      else withoutCode.push(row)
+    })
+    return [...latestByCode.values(), ...withoutCode].map((row) => {
+      const product = data.INVENTARIO_PT.find((item) => normalizeCode(item.CODIGO) === normalizeCode(row.CODIGO))
+      const totalCost = Number(row.COSTO ?? 0) + Number(row['COSTO FIJO'] ?? 0)
+      return {
+        ...row,
+        DETALLE: String(product?.DETALLE ?? row.DETALLE ?? ''),
+        'COSTO TOTAL': totalCost,
+        Columna1: Number(row['PRECIO AL PUBLICO'] ?? 0) - totalCost,
+      }
+    })
+  }
   return data[module]
 }
 
@@ -1748,7 +1790,17 @@ function sumBy(rows: WorkbookRow[], groupKey: string, valueKey: string): Record<
     return result
   }, {})
 }
-function normalizeCode(value: CellValue): string { return String(value ?? '').trim().toLocaleLowerCase() }
+function normalizeCode(value: CellValue): string { return String(value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase() }
+function validateProductIdentity(row: WorkbookRow, products: WorkbookRow[]): string {
+  const code = normalizeCode(row.CODIGO)
+  const detail = normalizeExpenseText(row.DETALLE)
+  if (!code) return 'El código del producto es obligatorio.'
+  if (!detail) return 'La descripción del producto es obligatoria.'
+  if (products.some((product) => normalizeCode(product.CODIGO) === code)) return `El código ${String(row.CODIGO).trim()} ya existe en el inventario. Usa el producto existente.`
+  const duplicateDetail = products.find((product) => normalizeExpenseText(product.DETALLE) === detail && normalizeCode(product.CODIGO) !== code)
+  if (duplicateDetail) return `La descripción “${String(row.DETALLE).trim()}” ya está asignada al código ${String(duplicateDetail.CODIGO ?? '').trim()}. Cada código nuevo debe tener una descripción diferente.`
+  return ''
+}
 function getLatestProductCost(costs: WorkbookRow[], code: CellValue): WorkbookRow | undefined {
   const key = normalizeCode(code)
   if (!key) return undefined
@@ -1813,7 +1865,7 @@ function productUnitPrice(code: CellValue, module: ModuleKey, data: Record<Modul
   const key = normalizeCode(code)
   const product = data.INVENTARIO_PT.find((row) => normalizeCode(row.CODIGO) === key)
   const cost = getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, key)
-  if (module === 'ENTRADAS') return Number(cost ? cost['COSTO TOTAL'] ?? Number(cost.COSTO ?? 0) + Number(cost['COSTO FIJO'] ?? 0) : product?.COSTO ?? 0)
+  if (module === 'ENTRADAS') return Number(cost ? Number(cost.COSTO ?? 0) + Number(cost['COSTO FIJO'] ?? 0) : product?.COSTO ?? 0)
   return Number(cost ? cost['PRECIO AL PUBLICO'] ?? product?.PRECIO ?? 0 : product?.PRECIO ?? 0)
 }
 function isCreditTypeLegacy(value: CellValue): boolean {
@@ -1906,7 +1958,7 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     const creditCount = sumBy(data.CREDITOS.filter((item) => isCreditType(item.TIPO)), 'CODIGO', 'CANT')[code] ?? 0
     next.PRECIO = cost ? Number(cost['PRECIO AL PUBLICO'] ?? 0) : null
     next.PRECIO_AL_POR_MAYOR = null
-    next.COSTO = cost ? Number(cost['COSTO TOTAL'] ?? Number(cost.COSTO ?? 0) + Number(cost['COSTO FIJO'] ?? 0)) : null
+    next.COSTO = cost ? Number(cost.COSTO ?? 0) + Number(cost['COSTO FIJO'] ?? 0) : null
     next['Costo fijo'] = cost ? Number(cost['COSTO FIJO'] ?? 0) : null
     next['Costo MO'] = null
     next.GANANCIA = next.PRECIO === null || next.COSTO === null ? null : Number(next.PRECIO) - Number(next.COSTO)
@@ -1956,6 +2008,8 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     delete next.Columna1
   }
   if (module === 'COSTOS_NO_PRODUCIDOS') {
+    const product = data.INVENTARIO_PT.find((item) => normalizeCode(item.CODIGO) === normalizeCode(next.CODIGO))
+    if (product) next.DETALLE = String(product.DETALLE ?? next.DETALLE ?? '').trim()
     if (next['COSTO FIJO'] === null || next['COSTO FIJO'] === undefined || next['COSTO FIJO'] === '') next['COSTO FIJO'] = 500
     next['COSTO TOTAL'] = Number(next.COSTO ?? 0) + Number(next['COSTO FIJO'] ?? 0)
     next.Columna1 = Number(next['PRECIO AL PUBLICO'] ?? 0) - Number(next['COSTO TOTAL'] ?? 0)
