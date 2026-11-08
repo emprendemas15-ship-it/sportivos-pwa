@@ -1148,21 +1148,22 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
         <thead><tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}{module === 'CLIENTES' && <><th>SALDO PENDIENTE</th><th>ESTADO DE CUENTA</th></>}{canDelete && <th>ACCIONES</th>}</tr></thead>
         <tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 2 : 0) + (canDelete ? 1 : 0)} className="empty-state"><strong>{module === 'CREDITOS' && totalRows > 0 ? 'No hay movimientos con esos filtros' : 'Sin registros'}</strong><span>{module === 'CREDITOS' && totalRows > 0 ? 'Prueba con otro nombre, tipo o rango de fechas.' : 'Usa Nuevo registro para capturar un dato.'}</span></td></tr> : displayRows.map((row, index) => {
           const clientName = String(row.NOMBRE ?? '').trim()
-          const statementRows = getClientTransactions(data.CREDITOS, clientName)
+          const clientSnapshot = getClientBalanceSnapshot(data.CLIENTES, clientName)
+          const statementRows = getClientTransactions(data.CREDITOS, clientName, clientSnapshot?.asOf)
           const recordKey = `${module}:${row.id ?? index}`
-          return <tr key={module + '-' + String(row.id ?? index)} className={module === 'CREDITOS' ? 'credit-record-row' : undefined}>
+          return <tr key={module === 'CLIENTES' ? `CLIENTES-${normalizeClientName(row.NOMBRE)}` : module + '-' + String(row.id ?? index)} className={module === 'CREDITOS' ? 'credit-record-row' : undefined}>
             {columns.map((column) => {
               const value = module === 'GASTOS' && column.key === 'DETALLE'
                 ? String(row.DETALLE ?? '').trim() || String(row.COMENTARIOS ?? '').trim() || row.CODIGO_MP
                 : row[column.key]
               return <td key={column.key} data-credit-label={module === 'CREDITOS' ? column.label : undefined} data-credit-field={module === 'CREDITOS' ? column.key : undefined}>{formatCell(value, column.key)}</td>
             })}
-            {module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => downloadClientStatement(clientName, statementRows)}>Descargar PDF</button><button type="button" className="small-action" onClick={() => void shareClientStatement(clientName, statementRows, onNotice)}>Compartir</button></div></td></>}
+            {module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => downloadClientStatement(clientName, statementRows, clientSnapshot ? { openingBalance: clientSnapshot.balance, openingDate: clientSnapshot.asOf } : undefined)}>Descargar PDF</button><button type="button" className="small-action" onClick={() => void shareClientStatement(clientName, statementRows, onNotice, clientSnapshot ? { openingBalance: clientSnapshot.balance, openingDate: clientSnapshot.asOf } : undefined)}>Compartir</button></div></td></>}
             {canDelete && <td className={`row-actions${module === 'CREDITOS' ? ' credit-action-cell' : ''}`} data-credit-label={module === 'CREDITOS' ? 'Acciones' : undefined} data-credit-field={module === 'CREDITOS' ? 'ACCIONES' : undefined}><button type="button" className="delete-button" disabled={deletingRecord !== null} onClick={() => onDelete(module, row)} aria-label={`Borrar registro de ${module}`} title="Borrar registro">{deletingRecord === recordKey ? 'Borrando…' : 'Borrar'}</button></td>}
           </tr>
         })}</tbody>
       </table></div>
-      <footer className="table-footer"><span>Mostrando <strong>{rows.length}</strong> de <strong>{totalRows}</strong> registros</span>{module === 'CLIENTES' && <span className="footer-note">El saldo y estado de cuenta se calculan desde CREDITOS.</span>}</footer>
+      <footer className="table-footer"><span>Mostrando <strong>{rows.length}</strong> de <strong>{totalRows}</strong> registros</span>{module === 'CLIENTES' && <span className="footer-note">Para clientes del Excel, saldo al 04/11/2026 más movimientos posteriores; los demás se calculan desde CREDITOS.</span>}</footer>
     </section>}
   </section>
 }
@@ -1504,7 +1505,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
   const isReduction = isCreditForm && (isAbono || isReturn)
   const formColumns = isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(isReturn && column.key === 'VALOR') && !(column.key === 'VALOR' && !isAbono) && !(column.key === 'MEDIO PAGO' && !isAbono && !isReturn)) : columns
   const selectedClient = String(values.NOMBRE ?? '').trim()
-  const currentDebt = isCreditForm ? getClientDebt(data.CREDITOS, selectedClient) : 0
+  const currentDebt = isCreditForm ? getClientDebt(data.CREDITOS, selectedClient, data.CLIENTES) : 0
   const returnValue = Math.max(0, calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO))
   const quantityKey = module === 'ENTRADAS' ? 'CANTIDAD' : 'CANT'
   const lineQuantity = Number(values[quantityKey] ?? 0)
@@ -1730,10 +1731,10 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
     const clients = new Map<string, WorkbookRow>()
     ;[...data.CLIENTES, ...data.CREDITOS.map((row) => ({ NOMBRE: row.NOMBRE }))].forEach((row) => {
       const name = String(row.NOMBRE ?? '').trim()
-      const key = name.toLocaleLowerCase('es')
+      const key = normalizeClientName(name)
       if (key && !clients.has(key)) clients.set(key, { ...row, NOMBRE: name })
     })
-    const balances: WorkbookRow[] = [...clients.values()].map((row) => ({ ...row, Columna1: getClientDebt(data.CREDITOS, String(row.NOMBRE ?? '').trim()) }))
+    const balances: WorkbookRow[] = [...clients.values()].map((row) => ({ ...row, Columna1: getClientDebt(data.CREDITOS, String(row.NOMBRE ?? '').trim(), data.CLIENTES) }))
     return balances.sort((a, b) => String(a.NOMBRE ?? '').localeCompare(String(b.NOMBRE ?? ''), 'es', { sensitivity: 'base' }))
   }
   if (module === 'COSTOS_NO_PRODUCIDOS') return data.COSTOS_NO_PRODUCIDOS.map((row) => ({ ...row, 'COSTO TOTAL': Number(row.COSTO ?? 0) + Number(row['COSTO FIJO'] ?? 0), Columna1: Number(row['PRECIO AL PUBLICO'] ?? 0) - (Number(row.COSTO ?? 0) + Number(row['COSTO FIJO'] ?? 0)) }))
@@ -1823,15 +1824,32 @@ function normalizeTransactionType(value: CellValue): string { return String(valu
 function isCreditType(value: CellValue): boolean { return normalizeTransactionType(value) === 'credito' || isCreditTypeLegacy(value) }
 function isAbonoType(value: CellValue): boolean { return normalizeTransactionType(value) === 'abono' }
 function isReturnType(value: CellValue): boolean { return normalizeTransactionType(value) === 'devolucion' }
-function getClientDebt(rows: WorkbookRow[], clientName: string): number {
-  if (!clientName) return 0
-  return rows.filter((row) => String(row.NOMBRE ?? '').trim().toLowerCase() === clientName.trim().toLowerCase()).reduce((balance, row) => {
-    const value = Number(row.VALOR ?? 0)
-    return balance + (isAbonoType(row.TIPO) || isReturnType(row.TIPO) ? -value : isCreditType(row.TIPO) ? value : 0)
-  }, 0)
+function normalizeClientName(value: unknown): string {
+  return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es')
 }
-function getClientTransactions(rows: WorkbookRow[], clientName: string): WorkbookRow[] {
-  return rows.filter((row) => String(row.NOMBRE ?? '').trim().toLowerCase() === clientName.toLowerCase()).sort((a, b) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA))
+function getClientBalanceSnapshot(clients: WorkbookRow[], clientName: string): { balance: number; asOf: number } | null {
+  const key = normalizeClientName(clientName)
+  const client = clients.find((row) => normalizeClientName(row.NOMBRE) === key)
+  const balance = Number(client?.saldo_base)
+  const asOf = Date.parse(String(client?.saldo_base_fecha ?? ''))
+  return client && client.saldo_base !== null && client.saldo_base !== undefined && client.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)
+    ? { balance, asOf }
+    : null
+}
+function getCreditMovementDelta(row: WorkbookRow): number {
+  const value = Number(row.VALOR ?? 0)
+  return isAbonoType(row.TIPO) || isReturnType(row.TIPO) ? -value : isCreditType(row.TIPO) ? value : 0
+}
+function getClientDebt(rows: WorkbookRow[], clientName: string, clients: WorkbookRow[] = []): number {
+  if (!clientName) return 0
+  const key = normalizeClientName(clientName)
+  const snapshot = getClientBalanceSnapshot(clients, clientName)
+  return rows.filter((row) => normalizeClientName(row.NOMBRE) === key && (!snapshot || rowCreatedAtValue(row) > snapshot.asOf))
+    .reduce((balance, row) => balance + getCreditMovementDelta(row), snapshot?.balance ?? 0)
+}
+function getClientTransactions(rows: WorkbookRow[], clientName: string, after?: number): WorkbookRow[] {
+  const key = normalizeClientName(clientName)
+  return rows.filter((row) => normalizeClientName(row.NOMBRE) === key && (after === undefined || rowCreatedAtValue(row) > after)).sort((a, b) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA))
 }
 function rowDateValue(value: CellValue): number {
   if (typeof value === 'number') return new Date(Date.UTC(1899, 11, 30) + value * 86400000).getTime()
@@ -1930,7 +1948,7 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     } else {
       next.VALOR = Number(next.VALOR ?? 0) || calculateLineTotal(next.CANT, next.PRECIO, next.DESCUENTO)
     }
-    next.DEUDA = getClientDebt(data.CREDITOS, clientName) + (isAbonoType(type) || isReturnType(type) ? -Number(next.VALOR ?? 0) : Number(next.VALOR ?? 0))
+    next.DEUDA = getClientDebt(data.CREDITOS, clientName, data.CLIENTES) + getCreditMovementDelta(next)
     next.MES = monthName(String(next.FECHA ?? ''))
   }
   if (module === 'ENTRADAS') {

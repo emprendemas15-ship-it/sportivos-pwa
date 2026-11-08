@@ -1,6 +1,7 @@
 import type { WorkbookRow } from './workbook'
 
 const cop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 })
+export type ClientStatementOptions = { openingBalance: number; openingDate: number }
 
 function safeText(value: unknown): string {
   return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ')
@@ -19,7 +20,7 @@ function reducesDebt(value: unknown): boolean {
   return ['abono', 'devolucion'].includes(safeText(value).toLowerCase())
 }
 
-async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise<Blob> {
+async function makePdf(clientName: string, transactions: WorkbookRow[], options?: ClientStatementOptions): Promise<Blob> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
   const green = rgb(0.11, 0.29, 0.21)
   const lightGreen = rgb(0.91, 0.95, 0.91)
@@ -33,7 +34,7 @@ async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise
   const totalCharges = ordered.filter((row) => !reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const totalPayments = ordered.filter((row) => reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const totalRefunds = ordered.filter((row) => safeText(row.TIPO).toLowerCase() === 'devolucion').reduce((total, row) => total + Number(String(row.COMENTARIO ?? '').match(/REEMBOLSO:(\d+(?:\.\d+)?)/i)?.[1] ?? 0), 0)
-  const finalBalance = totalCharges - totalPayments
+  const finalBalance = (options?.openingBalance ?? 0) + totalCharges - totalPayments
   const createdAt = new Date().toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })
   let logo: Awaited<ReturnType<typeof pdf.embedPng>> | null = null
   try {
@@ -75,7 +76,12 @@ async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise
     draw(String(ordered.length), 142, infoY - 31, 8, regular, green)
 
     const summaryY = infoY - 84
-    const boxes = [
+    const boxes = options ? [
+      { x: 38, title: `SALDO BASE ${new Date(options.openingDate).toLocaleDateString('es-CO')}`, amount: options.openingBalance },
+      { x: 170, title: 'CARGOS DESDE CORTE', amount: totalCharges },
+      { x: 302, title: 'ABONOS DESDE CORTE', amount: totalPayments },
+      { x: 434, title: 'SALDO ACTUAL', amount: finalBalance },
+    ] : [
       { x: 38, title: 'TOTAL CARGOS', amount: totalCharges },
       { x: 170, title: 'ABONOS A DEUDA', amount: totalPayments },
       { x: 302, title: 'REEMBOLSOS', amount: totalRefunds },
@@ -95,7 +101,7 @@ async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise
     draw('CARGO', columns[2] + 8, y, 7, bold, rgb(1, 1, 1))
     draw('ABONO', columns[3] + 8, y, 7, bold, rgb(1, 1, 1))
     draw('SALDO', columns[4] + 8, y, 7, bold, rgb(1, 1, 1))
-    let balance = ordered.slice(0, pageIndex * pageSize).reduce((total, row) => total + (reducesDebt(row.TIPO) ? -Number(row.VALOR ?? 0) : Number(row.VALOR ?? 0)), 0)
+    let balance = (options?.openingBalance ?? 0) + ordered.slice(0, pageIndex * pageSize).reduce((total, row) => total + (reducesDebt(row.TIPO) ? -Number(row.VALOR ?? 0) : Number(row.VALOR ?? 0)), 0)
     const chunk = ordered.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize)
     chunk.forEach((row, index) => {
       const rowY = y - 24 - index * 19
@@ -123,8 +129,8 @@ async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise
   return new Blob([new Uint8Array(bytes).buffer as ArrayBuffer], { type: 'application/pdf' })
 }
 
-export async function downloadClientStatement(clientName: string, transactions: WorkbookRow[]): Promise<void> {
-  const blob = await makePdf(clientName, transactions)
+export async function downloadClientStatement(clientName: string, transactions: WorkbookRow[], options?: ClientStatementOptions): Promise<void> {
+  const blob = await makePdf(clientName, transactions, options)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -133,8 +139,8 @@ export async function downloadClientStatement(clientName: string, transactions: 
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export async function shareClientStatement(clientName: string, transactions: WorkbookRow[], notify: (message: string) => void): Promise<void> {
-  const blob = await makePdf(clientName, transactions)
+export async function shareClientStatement(clientName: string, transactions: WorkbookRow[], notify: (message: string) => void, options?: ClientStatementOptions): Promise<void> {
+  const blob = await makePdf(clientName, transactions, options)
   const filename = `estado-cuenta-${safeText(clientName).toLowerCase().replace(/\s+/g, '-')}.pdf`
   const file = new File([blob], filename, { type: 'application/pdf' })
   if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
@@ -145,7 +151,7 @@ export async function shareClientStatement(clientName: string, transactions: Wor
       if (error instanceof DOMException && error.name === 'AbortError') return
     }
   }
-  await downloadClientStatement(clientName, transactions)
+  await downloadClientStatement(clientName, transactions, options)
   notify('Este navegador no permite compartir archivos directamente. Descargué el PDF para que puedas adjuntarlo.')
 }
 
