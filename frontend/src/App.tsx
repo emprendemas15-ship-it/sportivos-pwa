@@ -596,6 +596,15 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
     }
   }, [people, summary])
   const selectedPerson = allPeople.find((person) => person.sheet === form.personSheet)
+  const selectedPersonCreditRows = useMemo(() => {
+    if (!selectedPerson) return []
+    return data.CREDITOS
+      .filter((row) => normalizeClientName(row.NOMBRE) === normalizeClientName(selectedPerson.name)
+        && isCreditType(row.TIPO)
+        && String(row.CODIGO ?? '').trim())
+      .slice()
+      .sort((a, b) => rowCreatedAtValue(a) - rowCreatedAtValue(b))
+  }, [data.CREDITOS, selectedPerson?.name])
   const matchingFormPeople = useMemo(() => {
     const needle = personQuery.trim().toLocaleLowerCase('es')
     return allPeople.filter((person) => !needle || `${person.name} ${person.sheet}`.toLocaleLowerCase('es').includes(needle)).slice(0, 40)
@@ -704,6 +713,10 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
     if (form.type === 'CREDITO') {
       if (!form.code.trim() || !form.detail.trim()) {
         setMovementFormError('El código y la descripción son obligatorios para registrar un crédito.')
+        return
+      }
+      if (!selectedPersonCreditRows.some((credit) => normalizeCode(credit.CODIGO) === normalizeCode(form.code))) {
+        setMovementFormError('Este producto no está registrado en CREDITOS para esta persona. Primero registra el crédito en el módulo CREDITOS y luego selecciónalo aquí para verificarlo.')
         return
       }
       if (!Number.isFinite(quantityValue) || quantityValue <= 0 || !Number.isFinite(unitValueAmount) || unitValueAmount <= 0) {
@@ -819,22 +832,27 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
     setShowHistoryPdfModal(true)
   }
 
-  const creditProducts = data.INVENTARIO_PT
-    .filter((product) => String(product.CODIGO ?? '').trim())
-    .slice()
-    .sort(compareProductDetails)
-  const creditProductOptions: CodeSearchOption[] = creditProducts.map((product) => ({
-    code: String(product.CODIGO ?? '').trim(),
-    detail: String(product.DETALLE ?? '').trim(),
-    hint: `Stock disponible: ${number.format(Number(product.STOCK ?? 0))}`,
-  }))
+  const creditProductOptions = [...selectedPersonCreditRows.reduce((options, credit) => {
+    const code = String(credit.CODIGO ?? '').trim()
+    const key = normalizeCode(code)
+    const current = options.get(key)
+    const quantity = Number(credit.CANT ?? 0)
+    options.set(key, {
+      code,
+      detail: String(credit.DETALLE ?? '').trim(),
+      hint: `${number.format((current?.quantity ?? 0) + quantity)} unidad(es) registradas en CREDITOS`,
+      quantity: (current?.quantity ?? 0) + quantity,
+    })
+    return options
+  }, new Map<string, CodeSearchOption & { quantity: number }>()).values()]
+    .sort((a, b) => compareProductDetails({ CODIGO: a.code, DETALLE: a.detail }, { CODIGO: b.code, DETALLE: b.detail }))
   function selectValidationPerson(sheet: string) {
     const person = allPeople.find((item) => item.sheet === sheet)
     if (!person) return
     setPersonQuery(person.name)
     setPersonOptionsOpen(false)
     setActivePersonIndex(-1)
-    setForm((current) => ({ ...current, personSheet: person.sheet }))
+    setForm((current) => ({ ...current, personSheet: person.sheet, code: '', detail: '', quantity: '1', unitValue: '', discount: '0' }))
   }
   function handleValidationPersonKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'ArrowDown' && matchingFormPeople.length) {
@@ -913,17 +931,22 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
       <form onSubmit={(event) => void saveValidationMovement(event)}>
         <div className="validation-credit-form-grid">
           <label>Persona<div className="validation-credit-person-search">
-            <input required role="combobox" aria-label="Buscar persona para el movimiento" aria-autocomplete="list" aria-expanded={personOptionsOpen} aria-controls="validation-credit-person-options" aria-activedescendant={personOptionsOpen && activePersonIndex >= 0 ? `validation-credit-person-option-${activePersonIndex}` : undefined} autoComplete="off" placeholder="Escribe el nombre o código de la persona" value={personQuery} onFocus={() => setPersonOptionsOpen(true)} onBlur={() => window.setTimeout(() => setPersonOptionsOpen(false), 150)} onChange={(event) => { setPersonQuery(event.target.value); setPersonOptionsOpen(true); setActivePersonIndex(-1); setForm((current) => ({ ...current, personSheet: '' })) }} onKeyDown={handleValidationPersonKeyDown} />
+            <input required role="combobox" aria-label="Buscar persona para el movimiento" aria-autocomplete="list" aria-expanded={personOptionsOpen} aria-controls="validation-credit-person-options" aria-activedescendant={personOptionsOpen && activePersonIndex >= 0 ? `validation-credit-person-option-${activePersonIndex}` : undefined} autoComplete="off" placeholder="Escribe el nombre o código de la persona" value={personQuery} onFocus={() => setPersonOptionsOpen(true)} onBlur={() => window.setTimeout(() => setPersonOptionsOpen(false), 150)} onChange={(event) => { setPersonQuery(event.target.value); setPersonOptionsOpen(true); setActivePersonIndex(-1); setForm((current) => ({ ...current, personSheet: '', code: '', detail: '', quantity: '1', unitValue: '', discount: '0' })) }} onKeyDown={handleValidationPersonKeyDown} />
             {personOptionsOpen && <div className="validation-credit-person-options" id="validation-credit-person-options" role="listbox" aria-label="Personas coincidentes">{matchingFormPeople.length ? matchingFormPeople.map((person, index) => <button key={person.sheet} id={`validation-credit-person-option-${index}`} type="button" role="option" aria-selected={person.sheet === form.personSheet} className={index === activePersonIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => selectValidationPerson(person.sheet)}><strong>{person.name}</strong><span>{person.sheet}</span></button>) : <span className="validation-credit-person-empty">No hay personas coincidentes</span>}</div>}
           </div></label>
           <label>Fecha<input required type="date" min={periodPolicy.firstDate} max={periodPolicy.today} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} /></label>
         </div>
         <fieldset className="validation-credit-type"><legend>Tipo de movimiento</legend><label><input type="radio" name="validation-credit-type" checked={form.type === 'CREDITO'} onChange={() => setForm((current) => ({ ...current, type: 'CREDITO' }))} /> Crédito</label><label><input type="radio" name="validation-credit-type" checked={form.type === 'ABONO'} onChange={() => setForm((current) => ({ ...current, type: 'ABONO' }))} /> Abono</label></fieldset>
         {form.type === 'CREDITO' ? <div className="validation-credit-form-grid">
-          <label>Código o descripción del producto<SearchableCodeInput value={form.code} options={creditProductOptions} allowCustom required placeholder="Escribe un código o parte de la descripción" ariaLabel="Buscar producto por código o descripción" onChange={(value) => setForm((current) => ({ ...current, code: value, detail: '', unitValue: '' }))} onSelect={(option) => {
-            const product = creditProducts.find((item) => normalizeCode(item.CODIGO) === normalizeCode(option.code))
-            setForm((current) => ({ ...current, code: option.code, detail: String(product?.DETALLE ?? option.detail), quantity: '1', unitValue: String(product?.PRECIO ?? '') }))
+          <label>Código o descripción del crédito registrado<SearchableCodeInput value={form.code} options={creditProductOptions} required placeholder={selectedPerson ? 'Busca solo entre los créditos de esta persona' : 'Selecciona primero una persona'} ariaLabel="Buscar producto entre créditos de la persona" onChange={(value) => setForm((current) => ({ ...current, code: value, detail: '', unitValue: '' }))} onSelect={(option) => {
+            const matchingCredits = selectedPersonCreditRows.filter((row) => normalizeCode(row.CODIGO) === normalizeCode(option.code))
+            const latestCredit = matchingCredits.at(-1)
+            const registeredQuantity = matchingCredits.reduce((total, credit) => total + Number(credit.CANT ?? 0), 0)
+            const recordedPrice = Number(latestCredit?.PRECIO ?? (Number(latestCredit?.CANT ?? 0) > 0 ? Number(latestCredit?.VALOR ?? 0) / Number(latestCredit?.CANT ?? 1) : 0))
+            setForm((current) => ({ ...current, code: option.code, detail: option.detail, quantity: String(registeredQuantity || 1), unitValue: String(recordedPrice || '') }))
           }} /></label>
+          {!selectedPerson && <p className="form-hint">Selecciona primero una persona para consultar los productos que ya tiene registrados en CREDITOS.</p>}
+          {selectedPerson && creditProductOptions.length === 0 && <p className="form-hint">Esta persona aún no tiene créditos con código en el módulo CREDITOS.</p>}
           <label>Descripción<input required value={form.detail} onChange={(event) => setForm((current) => ({ ...current, detail: event.target.value }))} /></label>
           <label>Cantidad<input required type="number" min="0.01" step="any" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
           <label>Valor unitario<input required type="number" min="1" step="1" value={form.unitValue} onChange={(event) => setForm((current) => ({ ...current, unitValue: event.target.value }))} /></label>
@@ -1248,7 +1271,7 @@ function SearchableCodeInput({ value, options, onChange, onSelect, allowCustom, 
   return <div className="code-search-field">
     <input type="text" role="combobox" aria-label={ariaLabel} aria-autocomplete="list" aria-expanded={isOpen} aria-controls="code-search-options" aria-activedescendant={isOpen && activeIndex >= 0 ? `code-search-option-${activeIndex}` : undefined} autoComplete="off" required={required} disabled={disabled} value={query} placeholder={placeholder} onFocus={() => setIsOpen(true)} onBlur={() => window.setTimeout(() => setIsOpen(false), 140)} onChange={(event) => { const next = event.target.value; setQuery(next); setActiveIndex(-1); setIsOpen(true); onChange(next) }} onKeyDown={handleKeyDown} />
     {isOpen && (matchingOptions.length > 0 || !allowCustom) && <div className="code-search-options" id="code-search-options" role="listbox" aria-label="Códigos y detalles">
-      {matchingOptions.length ? matchingOptions.map((option, index) => <button key={`${option.code}-${index}`} id={`code-search-option-${index}`} type="button" role="option" aria-selected={index === activeIndex} disabled={option.disabled} className={index === activeIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}><strong>{option.code}</strong><span>{option.detail}</span>{option.hint && <small>{option.hint}</small>}</button>) : <span className="code-search-empty">No hay coincidencias en el inventario</span>}
+      {matchingOptions.length ? matchingOptions.map((option, index) => <button key={`${option.code}-${index}`} id={`code-search-option-${index}`} type="button" role="option" aria-selected={index === activeIndex} disabled={option.disabled} className={index === activeIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}><strong>{option.code}</strong><span>{option.detail}</span>{option.hint && <small>{option.hint}</small>}</button>) : <span className="code-search-empty">No hay coincidencias para esta búsqueda</span>}
     </div>}
   </div>
 }
