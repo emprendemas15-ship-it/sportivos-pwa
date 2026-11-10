@@ -1,14 +1,14 @@
 {
-  "generatedAt": "2026-11-04T02:52:18.051Z",
+  "generatedAt": "2026-11-10T00:54:29.292Z",
   "summary": {
     "totalPersonas": 79,
-    "totalCompras": 42348000,
+    "totalCompras": 42553000,
     "totalAbonos": 42862200,
     "totalDescuentos": 1032500,
     "carteraPendiente": 5158000,
     "personasConSaldoPendiente": 26,
     "personasAlDia": 53,
-    "registros": 1227,
+    "registros": 1229,
     "inconsistencias": 61
   },
   "people": [
@@ -19,7 +19,7 @@
         {
           "fecha": "2026-09-04",
           "codigo": "LEGBA",
-          "detalle": null,
+          "detalle": "LEGINS BOTA ANCHA",
           "cantidad": 1,
           "valor": 48000,
           "descuento": 15500,
@@ -508,7 +508,7 @@
         {
           "fecha": "2026-07-22",
           "codigo": "TENHA",
-          "detalle": null,
+          "detalle": "TEN HOMBRE AAA",
           "cantidad": 2,
           "valor": 195000,
           "descuento": 0,
@@ -550,7 +550,7 @@
         {
           "fecha": "2026-07-22",
           "codigo": "TBAAA",
-          "detalle": null,
+          "detalle": "TEN BLANCO NYKE AAA",
           "cantidad": 1,
           "valor": 210000,
           "descuento": 0,
@@ -835,7 +835,7 @@
         {
           "fecha": "2026-03-17",
           "codigo": "ENTERSH",
-          "detalle": null,
+          "detalle": "ENTERIZO DEPORTIVO SHOR",
           "cantidad": 1,
           "valor": 55000,
           "descuento": 0,
@@ -2543,7 +2543,7 @@
         {
           "fecha": "2026-07-05",
           "codigo": "TCAMP",
-          "detalle": null,
+          "detalle": "TEN CAMPUS",
           "cantidad": 1,
           "valor": 95000,
           "descuento": 0,
@@ -3092,7 +3092,7 @@
         {
           "fecha": "2026-04-20",
           "codigo": "SABAKI",
-          "detalle": null,
+          "detalle": "SABANAS KIT",
           "cantidad": 1,
           "valor": 65000,
           "descuento": 0,
@@ -3101,6 +3101,20 @@
           "debe": 255000,
           "tieneDebe": true,
           "negocio": null,
+          "tipo": "COMPRA"
+        },
+        {
+          "fecha": null,
+          "codigo": null,
+          "detalle": "CHOMPA EFREN",
+          "cantidad": 1,
+          "valor": 85000,
+          "descuento": 0,
+          "total": 85000,
+          "abona": 0,
+          "debe": 340000,
+          "tieneDebe": true,
+          "negocio": "EFREN",
           "tipo": "COMPRA"
         },
         {
@@ -3300,7 +3314,7 @@
           "tipo": "COMPRA"
         }
       ],
-      "totalCompras": 1282000,
+      "totalCompras": 1367000,
       "totalAbonos": 748000,
       "totalDescuentos": 0,
       "saldoPendiente": 619000,
@@ -6293,7 +6307,7 @@
         {
           "fecha": "2026-07-05",
           "codigo": "STU02",
-          "detalle": null,
+          "detalle": "SUDADERA TRIPLE A INPERMEHABLE",
           "cantidad": 2,
           "valor": 75000,
           "descuento": 0,
@@ -6307,7 +6321,7 @@
         {
           "fecha": "2026-07-05",
           "codigo": "STU03",
-          "detalle": null,
+          "detalle": "SUDADERA TRIPLE A ALGODON",
           "cantidad": 2,
           "valor": 85000,
           "descuento": 0,
@@ -7101,7 +7115,7 @@
         {
           "fecha": "2025-03-16",
           "codigo": "BOXCXL",
-          "detalle": null,
+          "detalle": "BOXER CALVIN CLAIN",
           "cantidad": 4,
           "valor": 12000,
           "descuento": 8000,
@@ -7937,7 +7951,7 @@
         {
           "fecha": "2024-10-27",
           "codigo": "TEH04",
-          "detalle": null,
+          "detalle": "TEN ECONOMICO",
           "cantidad": 1,
           "valor": 90000,
           "descuento": 0,
@@ -8888,7 +8902,7 @@
         {
           "fecha": "2024-12-28",
           "codigo": null,
-          "detalle": null,
+          "detalle": "BOTAS",
           "cantidad": 1,
           "valor": 85000,
           "descuento": 0,
@@ -11209,7 +11223,7 @@
         {
           "fecha": "2025-10-25",
           "codigo": "TENM",
-          "detalle": null,
+          "detalle": "TEN MARY ROSA",
           "cantidad": 1,
           "valor": 120000,
           "descuento": 0,
@@ -11250,7 +11264,7 @@
         {
           "fecha": "2026-05-18",
           "codigo": "DEPEN",
-          "detalle": null,
+          "detalle": "DEPORTIVO ENTERO",
           "cantidad": 1,
           "valor": 75000,
           "descuento": 0,
@@ -12268,7 +12282,7 @@
         {
           "fecha": "2026-04-20",
           "codigo": "FRR",
-          "detalle": null,
+          "detalle": "FORRO COLCHON",
           "cantidad": 1,
           "valor": 65000,
           "descuento": 0,
@@ -12282,7 +12296,7 @@
         {
           "fecha": "2026-04-24",
           "codigo": "PIJT",
-          "detalle": null,
+          "detalle": "PIJAMA TULA",
           "cantidad": 1,
           "valor": 48000,
           "descuento": 0,
@@ -12365,7 +12379,7 @@
         {
           "fecha": "2026-06-10",
           "codigo": "COBG",
-          "detalle": null,
+          "detalle": "COBIJA  GRIS",
           "cantidad": 1,
           "valor": 75000,
           "descuento": 0,
@@ -13111,7 +13125,7 @@
         {
           "fecha": "2026-03-31",
           "codigo": "CHAN",
-          "detalle": null,
+          "detalle": "CHAQUETA NEGRA",
           "cantidad": 1,
           "valor": 90000,
           "descuento": 0,
@@ -13125,7 +13139,7 @@
         {
           "fecha": "2026-04-15",
           "codigo": null,
-          "detalle": null,
+          "detalle": "CHOMPA EFREN",
           "cantidad": 1,
           "valor": 90000,
           "descuento": 0,
@@ -13139,7 +13153,7 @@
         {
           "fecha": null,
           "codigo": null,
-          "detalle": "ABONO",
+          "detalle": "ABONO ARREGLO LUZ",
           "cantidad": 0,
           "valor": 0,
           "descuento": 0,
@@ -13327,7 +13341,7 @@
         {
           "fecha": "2026-09-15",
           "codigo": "SUDIN",
-          "detalle": null,
+          "detalle": "SUDADERA INTELIGENTE",
           "cantidad": 1,
           "valor": 85000,
           "descuento": 10000,
@@ -14102,7 +14116,7 @@
         {
           "fecha": "2026-07-28",
           "codigo": "TENNN",
-          "detalle": null,
+          "detalle": "TEN NEGRO",
           "cantidad": 1,
           "valor": 170000,
           "descuento": 0,
@@ -14612,6 +14626,20 @@
       "sheet": "PAULA MADRERA",
       "transactions": [
         {
+          "fecha": null,
+          "codigo": null,
+          "detalle": "CAMA GRANDE AZUL",
+          "cantidad": 1,
+          "valor": 120000,
+          "descuento": 0,
+          "total": 120000,
+          "abona": 0,
+          "debe": 120000,
+          "tieneDebe": true,
+          "negocio": "COLIPETS",
+          "tipo": "COMPRA"
+        },
+        {
           "fecha": "2026-03-28",
           "codigo": null,
           "detalle": "ABONO",
@@ -14640,7 +14668,7 @@
           "tipo": "ABONO"
         }
       ],
-      "totalCompras": 0,
+      "totalCompras": 120000,
       "totalAbonos": 120000,
       "totalDescuentos": 0,
       "saldoPendiente": 0,
@@ -17883,7 +17911,7 @@
         {
           "fecha": "2026-06-23",
           "codigo": "DEPSH",
-          "detalle": null,
+          "detalle": "DEPORTIVO DE  SHORT",
           "cantidad": 2,
           "valor": 80000,
           "descuento": 0,
@@ -17911,7 +17939,7 @@
         {
           "fecha": "2026-07-13",
           "codigo": "DEOBH",
-          "detalle": null,
+          "detalle": "DEPORTIVO DE HOMBRE CON BUSO",
           "cantidad": 1,
           "valor": 65000,
           "descuento": 0,
@@ -18022,7 +18050,7 @@
         {
           "fecha": "2026-07-24",
           "codigo": "SABALG",
-          "detalle": null,
+          "detalle": "SABANAS DE ALGODÓN",
           "cantidad": 1,
           "valor": 85000,
           "descuento": 0,
@@ -18413,7 +18441,7 @@
         {
           "fecha": "2026-07-05",
           "codigo": "DEP1.1",
-          "detalle": null,
+          "detalle": "DEPORTIVO CHOMPA 1.1 HOMBRE",
           "cantidad": 1,
           "valor": 165000,
           "descuento": 0,

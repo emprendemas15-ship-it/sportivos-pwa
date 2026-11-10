@@ -46,6 +46,9 @@ const validationCreditTable = 'validacion_creditos_movimientos'
 const validationCreditBusinesses = ['COLIPETS', 'OTRO', 'SPORTIVOS']
 const validationCreditClientSheets = new Map(validationCreditPortfolio.flatMap((person) => [person.name, person.sheet].map((name) => [normalizeClientName(name), person.sheet] as const)))
 const validationCreditClientKeys = new Set(validationCreditClientSheets.keys())
+// Existing CREDITOS rows through this bulk-import timestamp are represented by the Excel opening balances below.
+const importedCreditHistoryCutoff = Date.parse('2026-11-04T03:45:27.630377Z')
+const validationCreditOpeningBalances = new Map(validationCreditPortfolio.map((person) => [normalizeClientName(person.sheet), person.saldoPendiente]))
 const localDateInputValue = () => {
   const date = new Date()
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -1224,7 +1227,9 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
   const pageRows = displayRows.slice(page * pageSize, (page + 1) * pageSize)
   useEffect(() => { setPage(0) }, [module, rows])
   const clientSnapshots = useMemo(() => {
-    const snapshots = new Map<string, { balance: number; asOf: number }>()
+    const snapshots = new Map<string, { balance: number; asOf: number }>(
+      validationCreditPortfolio.map((person) => [normalizeClientName(person.sheet), { balance: person.saldoPendiente, asOf: importedCreditHistoryCutoff }]),
+    )
     data.CLIENTES.forEach((client) => {
       const key = getValidationClientIdentity(client.NOMBRE)
       const balance = Number(client.saldo_base)
@@ -1918,6 +1923,9 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
       const asOf = Date.parse(String(row.saldo_base_fecha ?? ''))
       if (identity && row.saldo_base !== null && row.saldo_base !== undefined && row.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)) snapshots.set(identity, { balance, asOf })
     })
+    validationCreditOpeningBalances.forEach((balance, identity) => {
+      if (!snapshots.has(identity)) snapshots.set(identity, { balance, asOf: importedCreditHistoryCutoff })
+    })
     const balancesByClient = new Map<string, number>()
     snapshots.forEach((snapshot, identity) => balancesByClient.set(identity, snapshot.balance))
     data.CREDITOS.forEach((row) => {
@@ -2075,9 +2083,9 @@ function getClientBalanceSnapshot(clients: WorkbookRow[], clientName: string): {
   const client = clients.find((row) => getValidationClientIdentity(row.NOMBRE) === key)
   const balance = Number(client?.saldo_base)
   const asOf = Date.parse(String(client?.saldo_base_fecha ?? ''))
-  return client && client.saldo_base !== null && client.saldo_base !== undefined && client.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)
-    ? { balance, asOf }
-    : null
+  if (client && client.saldo_base !== null && client.saldo_base !== undefined && client.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)) return { balance, asOf }
+  const historicalBalance = validationCreditOpeningBalances.get(key)
+  return historicalBalance === undefined ? null : { balance: historicalBalance, asOf: importedCreditHistoryCutoff }
 }
 function getCreditMovementDelta(row: WorkbookRow): number {
   const value = Number(row.VALOR ?? 0)

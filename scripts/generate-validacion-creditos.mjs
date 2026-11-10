@@ -88,7 +88,8 @@ for (const sheetName of workbook.SheetNames) {
 
   for (const row of nonEmptyRows.slice(headerIndex + 1)) {
     const values = row.map((value) => (value === null || value === undefined ? null : typeof value === 'string' ? value.trim() : value))
-    const detalleRaw = values[columnMap.detalle ?? 2] ?? values[2] ?? null
+    const detailColumn = columnMap.detalle ?? 2
+    const detalleRaw = values.slice(detailColumn, detailColumn + 4).find((value) => typeof value === 'string' && value.trim()) ?? values[detailColumn] ?? values[2] ?? null
     const detalle = cleanText(detalleRaw)
     const rawAbona = values[columnMap.abona ?? 9] ?? values[9] ?? null
     const rawTotal = values[columnMap.total ?? 8] ?? values[8] ?? null
@@ -96,7 +97,8 @@ for (const sheetName of workbook.SheetNames) {
     const hasAbonoValue = number(rawAbona) > 0
     const isAbono = /abono/i.test(detalle) || /abono/i.test(cleanText(rawAbona)) || (hasAbonoValue && number(rawTotal) === 0 && number(values[columnMap.valor ?? 6] ?? values[6]) === 0 && number(values[columnMap.cantidad ?? 5] ?? values[5]) === 0)
 
-    if (!detalle && !isAbono && values.every((value) => value === null || cleanText(value) === '')) continue
+    const hasPurchaseData = number(values[columnMap.cantidad ?? 5]) > 0 || number(values[columnMap.valor ?? 6]) > 0 || number(rawTotal) > 0
+    if (!detalle && !isAbono && !hasPurchaseData && values.every((value) => value === null || cleanText(value) === '')) continue
 
     const fechaValue = values[columnMap.fecha ?? 1] ?? values[1] ?? null
     const fecha = toIsoDate(fechaValue)
@@ -124,7 +126,7 @@ for (const sheetName of workbook.SheetNames) {
       tipo: isAbono ? 'ABONO' : 'COMPRA',
     }
 
-    if (!fecha && !isAbono && !codigo && !detalle) continue
+    if (!fecha && !isAbono && !codigo && !detalle && !hasPurchaseData) continue
 
     if (transaction.tipo === 'ABONO' && transaction.abona <= 0 && transaction.debe > 0) {
       issues.push({ fecha, detalle: transaction.detalle, issue: 'Abono sin valor registrado' })
