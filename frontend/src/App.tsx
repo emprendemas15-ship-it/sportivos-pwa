@@ -576,9 +576,12 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
     businessDetail: '',
   }))
   const baseSummary = useMemo(() => getValidationCreditSummary(), [])
-  const allPeople = useMemo(() => mergeValidationCreditMovements(movements)
+  const registeredClientNames = useMemo(() => [...data.CLIENTES, ...data.CREDITOS]
+    .map((row) => String(row.NOMBRE ?? '').trim())
+    .filter(Boolean), [data.CLIENTES, data.CREDITOS])
+  const allPeople = useMemo(() => mergeValidationCreditMovements(movements, registeredClientNames)
     .slice()
-    .sort((a, b) => a.sheet.localeCompare(b.sheet, 'es', { sensitivity: 'base' })), [movements])
+    .sort((a, b) => a.sheet.localeCompare(b.sheet, 'es', { sensitivity: 'base' })), [movements, registeredClientNames])
   const summary = useMemo(() => ({
     ...baseSummary,
     totalPersonas: allPeople.length,
@@ -642,7 +645,7 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
         setIsLoadingMovements(false)
         return
       }
-      const result = await supabase.from(validationCreditTable).select('*').order('created_at', { ascending: true })
+      const result = await readAllValidationMovementRows(supabase)
       if (!active) return
       if (result.error) {
         setMovementLoadError('No se pudieron cargar los movimientos nuevos. Verifica que la tabla de validación esté configurada en Supabase. ' + result.error.message)
@@ -806,13 +809,13 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
       deletionConfirmed = true
       const remainingMovements = movements.filter((movement) => movement.id !== row.savedMovementId)
       setMovements(remainingMovements)
-      const localBalance = mergeValidationCreditMovements(remainingMovements).find((person) => person.sheet === personSheet)?.saldoPendiente ?? 0
+      const localBalance = mergeValidationCreditMovements(remainingMovements, registeredClientNames).find((person) => person.sheet === personSheet)?.saldoPendiente ?? 0
       setMovementNotice(`Movimiento eliminado. Saldo actualizado para ${personName}: ${currency.format(localBalance)}.`)
-      const refreshed = await supabase.from(validationCreditTable).select('*').order('created_at', { ascending: true })
+      const refreshed = await readAllValidationMovementRows(supabase)
       if (refreshed.error) throw new Error(refreshed.error.message)
       const currentMovements = (refreshed.data ?? []).map(parseSavedValidationMovement)
       setMovements(currentMovements)
-      const updatedBalance = mergeValidationCreditMovements(currentMovements).find((person) => person.sheet === personSheet)?.saldoPendiente ?? 0
+      const updatedBalance = mergeValidationCreditMovements(currentMovements, registeredClientNames).find((person) => person.sheet === personSheet)?.saldoPendiente ?? 0
       setMovementNotice(`Movimiento eliminado. Saldo actualizado para ${personName}: ${currency.format(updatedBalance)}.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error desconocido.'
@@ -904,7 +907,7 @@ function ValidationCreditView({ data, periodPolicy }: { data: Record<ModuleKey, 
 
     <section className="catalog-card">
       <div className="catalog-header">
-        <div><h2>Listado de personas</h2><p>{people.length} resultados de {summary.totalPersonas} personas importadas.</p></div>
+        <div><h2>Listado de personas</h2><p>{people.length} resultados de {summary.totalPersonas} clientes y personas de validación.</p></div>
         <label className="search-box"><span>?</span><input aria-label="Buscar persona de validación de créditos" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre, código o hoja..." /><kbd>Ctrl K</kbd></label>
       </div>
       <div className="table-wrap"><table className="validation-credit-people-table">
@@ -1008,6 +1011,18 @@ function parseSavedValidationMovement(value: unknown): SavedValidationCreditMove
     balance_after: Number(row.balance_after ?? 0),
     business: String(row.business ?? ''),
     created_at: String(row.created_at ?? ''),
+  }
+}
+
+async function readAllValidationMovementRows(client: NonNullable<typeof supabase>) {
+  const pageSize = 1000
+  const rows: unknown[] = []
+  for (let offset = 0; ; offset += pageSize) {
+    const result = await client.from(validationCreditTable).select('*').order('created_at', { ascending: true }).order('id', { ascending: true }).range(offset, offset + pageSize - 1)
+    if (result.error) return { data: null, error: result.error }
+    const page = result.data ?? []
+    rows.push(...page)
+    if (page.length < pageSize) return { data: rows, error: null }
   }
 }
 

@@ -80,16 +80,40 @@ export function getValidationCreditPeople(search: string = '') {
   })
 }
 
-export function mergeValidationCreditMovements(movements: SavedValidationCreditMovement[]): ValidationCreditPerson[] {
+export function mergeValidationCreditMovements(
+  movements: SavedValidationCreditMovement[],
+  clientNames: string[] = [],
+): ValidationCreditPerson[] {
   const grouped = new Map<string, SavedValidationCreditMovement[]>()
   movements.forEach((movement) => {
-    const records = grouped.get(movement.person_sheet) ?? []
+    const key = normalizeClientIdentity(movement.person_sheet)
+    const records = grouped.get(key) ?? []
     records.push(movement)
-    grouped.set(movement.person_sheet, records)
+    grouped.set(key, records)
   })
 
-  return validationCreditPortfolio.map((person) => {
-    const additions = (grouped.get(person.sheet) ?? []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at))
+  const peopleByIdentity = new Map<string, ValidationCreditPerson>()
+  validationCreditPortfolio.forEach((person) => peopleByIdentity.set(normalizeClientIdentity(person.sheet), person))
+  clientNames.forEach((rawName) => {
+    const name = rawName.trim()
+    const identity = normalizeClientIdentity(name)
+    if (!identity || peopleByIdentity.has(identity)) return
+    peopleByIdentity.set(identity, {
+      name,
+      sheet: name,
+      transactions: [],
+      totalCompras: 0,
+      totalAbonos: 0,
+      totalDescuentos: 0,
+      saldoPendiente: 0,
+      ultimoMovimiento: null,
+      estado: 'AL_DIA',
+      issues: [],
+    })
+  })
+
+  return [...peopleByIdentity.values()].map((person) => {
+    const additions = (grouped.get(normalizeClientIdentity(person.sheet)) ?? []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at))
     const recordedBalance = [...person.transactions].reverse().find((transaction) => transaction.tieneDebe)?.debe
     const openingBalance = recordedBalance ?? person.saldoPendiente
     let runningBalance = openingBalance
@@ -134,4 +158,8 @@ export function mergeValidationCreditMovements(movements: SavedValidationCreditM
       estado: saldoPendiente > 0 ? 'PENDIENTE' : 'AL_DIA',
     }
   })
+}
+
+function normalizeClientIdentity(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es')
 }
