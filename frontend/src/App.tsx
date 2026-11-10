@@ -45,7 +45,6 @@ type ValidationCreditFormValues = {
 const validationCreditTable = 'validacion_creditos_movimientos'
 const validationCreditBusinesses = ['COLIPETS', 'OTRO', 'SPORTIVOS']
 const validationCreditClientSheets = new Map(validationCreditPortfolio.flatMap((person) => [person.name, person.sheet].map((name) => [normalizeClientName(name), person.sheet] as const)))
-const validationCreditClientKeys = new Set(validationCreditClientSheets.keys())
 // Existing CREDITOS rows through this bulk-import timestamp are represented by the Excel opening balances below.
 const importedCreditHistoryCutoff = Date.parse('2026-11-04T03:45:27.630377Z')
 const validationCreditOpeningBalances = new Map(validationCreditPortfolio.map((person) => [normalizeClientName(person.sheet), person.saldoPendiente]))
@@ -1655,7 +1654,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
       const name = String(row.NOMBRE ?? '').trim()
       const key = normalizeClientName(name)
       const identity = getValidationClientIdentity(name)
-      if (key && validationCreditClientKeys.has(key) && !names.has(identity)) names.set(identity, getValidationClientSheet(name) ?? name)
+      if (key && !names.has(identity)) names.set(identity, getValidationClientSheet(name) ?? name)
     })
     return [...names.values()].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
   }, [data.CLIENTES, data.CREDITOS])
@@ -1767,6 +1766,13 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
     if (isCreditForm && !clientNames.some((name) => normalizeClientName(name) === normalizeClientName(values.NOMBRE))) {
       setError('Busca y selecciona una persona de la lista.')
       return
+    }
+    if (module === 'CLIENTES') {
+      const identity = getValidationClientIdentity(values.NOMBRE)
+      if (data.CLIENTES.some((client) => getValidationClientIdentity(client.NOMBRE) === identity)) {
+        setError('Ya existe un cliente con ese nombre. Revisa la lista y selecciona el existente.')
+        return
+      }
     }
     if (datedOperationalModules.has(module)) {
       const dateError = validateOperationalDate(values.FECHA, periodPolicy)
@@ -1918,7 +1924,7 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
       const name = String(row.NOMBRE ?? '').trim()
       const key = normalizeClientName(name)
       const identity = getValidationClientIdentity(name)
-      if (key && validationCreditClientKeys.has(key) && !clients.has(identity)) clients.set(identity, { ...row, NOMBRE: getValidationClientSheet(name) ?? name })
+      if (key && !clients.has(identity)) clients.set(identity, { ...row, NOMBRE: getValidationClientSheet(name) ?? name })
       const balance = Number(row.saldo_base)
       const asOf = Date.parse(String(row.saldo_base_fecha ?? ''))
       if (identity && row.saldo_base !== null && row.saldo_base !== undefined && row.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)) snapshots.set(identity, { balance, asOf })
@@ -1931,7 +1937,7 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
     data.CREDITOS.forEach((row) => {
       const identity = getValidationClientIdentity(row.NOMBRE)
       const key = normalizeClientName(row.NOMBRE)
-      if (!key || !validationCreditClientKeys.has(key)) return
+      if (!key) return
       if (!clients.has(identity)) clients.set(identity, { NOMBRE: getValidationClientSheet(row.NOMBRE) ?? String(row.NOMBRE ?? '').trim() })
       const snapshot = snapshots.get(identity)
       if (!snapshot || rowCreatedAtValue(row) > snapshot.asOf) balancesByClient.set(identity, (balancesByClient.get(identity) ?? 0) + getCreditMovementDelta(row))
@@ -2145,6 +2151,7 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     if (column.type === 'number' && next[column.key] === '') next[column.key] = null
     else if (column.type === 'number' && next[column.key] !== null && next[column.key] !== undefined) next[column.key] = Number(next[column.key])
   })
+  if (module === 'CLIENTES') next.NOMBRE = String(next.NOMBRE ?? '').trim().replace(/\s+/g, ' ')
   if (module === 'INVENTARIO_PT') {
     const code = String(next.CODIGO ?? '').trim().toLowerCase()
     const cost = getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, code)
