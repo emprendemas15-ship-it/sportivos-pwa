@@ -366,3 +366,5 @@
 .physical-count-note { display: grid; gap: 6px; margin-top: 15px; color: #58675e; font-size: 10px; font-weight: 700; }
 .physical-count-table-wrap th, .physical-count-table-wrap td { padding: 9px 11px; font-size: 11px; }
 .physical-count-table-wrap input { width: 115px; height: 32px; padding: 0 8px; border: 1px solid #dfe7df; border-radius: 5px; color: #34463a; font-size: 11px; }
+.stock-delete-modal { width: min(100%, 610px); }
+.stock-delete-actions { flex-wrap: wrap; }

@@ -9,6 +9,7 @@ export type ValidationCreditTransaction = {
   valor: number
   descuento: number
   total: number
+  totalDerivado?: boolean
   abona: number
   debe: number
   tieneDebe: boolean
@@ -31,6 +32,8 @@ export type ValidationCreditPerson = {
 
 export type ValidationCreditDataset = {
   generatedAt: string
+  sourceWorkbook?: string
+  sourceAsOf?: string
   summary: {
     totalPersonas: number
     totalCompras: number
@@ -66,6 +69,8 @@ export type SavedValidationCreditMovement = {
 const validationCreditData = validationCreditDataRaw as ValidationCreditDataset
 
 export const validationCreditPortfolio = validationCreditData.people
+export const validationCreditSourceWorkbook = validationCreditData.sourceWorkbook ?? 'CREDITOS.xlsm'
+export const validationCreditSourceAsOf = Date.parse(validationCreditData.sourceAsOf ?? validationCreditData.generatedAt)
 
 export function getValidationCreditSummary() {
   return validationCreditData.summary
@@ -113,7 +118,21 @@ export function mergeValidationCreditMovements(
   })
 
   return [...peopleByIdentity.values()].map((person) => {
-    const additions = (grouped.get(normalizeClientIdentity(person.sheet)) ?? []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at))
+    const baselineTransactionCounts = new Map<string, number>()
+    person.transactions.forEach((transaction) => {
+      const key = validationTransactionKey(transaction)
+      baselineTransactionCounts.set(key, (baselineTransactionCounts.get(key) ?? 0) + 1)
+    })
+    const additions = (grouped.get(normalizeClientIdentity(person.sheet)) ?? [])
+      .slice()
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .filter((movement) => {
+        const key = savedMovementKey(movement)
+        const matchedBaselineRows = baselineTransactionCounts.get(key) ?? 0
+        if (!matchedBaselineRows) return true
+        baselineTransactionCounts.set(key, matchedBaselineRows - 1)
+        return false
+      })
     const recordedBalance = [...person.transactions].reverse().find((transaction) => transaction.tieneDebe)?.debe
     const openingBalance = recordedBalance ?? person.saldoPendiente
     let runningBalance = openingBalance
@@ -161,5 +180,37 @@ export function mergeValidationCreditMovements(
 }
 
 function normalizeClientIdentity(value: string): string {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es')
+  const identity = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es')
+  const aliases: Record<string, string> = {
+    'yarmile amiga angela': 'yamirley amiga de angela vip',
+    'yamirle amiga de angela': 'yamirley amiga de angela vip',
+    'yamirley amiga angela vip': 'yamirley amiga de angela vip',
+    'cristian esposo gimena': 'cristian esposo de gimena',
+    'angy rionegro': 'angie rionegro',
+    'carolina freiser': 'carolina frasser',
+    'estefa jyg': 'estefania jyg',
+    'johana madre comunitaria': 'jhoana m.comunitaria',
+    'leydi pacifico': 'leidy pasifico',
+    'liliana mama de kate': 'lilia mama de kate',
+    'manuela amiga manuel': 'manuela amiga de manuel',
+    'yuleth amiga de nery': 'yulet amiga nery',
+    'yulet amiga de nery': 'yulet amiga nery',
+  }
+  return aliases[identity] ?? identity
+}
+
+function validationTransactionKey(transaction: ValidationCreditTransaction): string {
+  return [
+    transaction.fecha ?? '', transaction.tipo, normalizeClientIdentity(transaction.codigo ?? ''),
+    Number(transaction.cantidad ?? 0), Number(transaction.valor ?? 0), Number(transaction.descuento ?? 0),
+    Number(transaction.total ?? 0), Number(transaction.abona ?? 0),
+  ].join('|')
+}
+
+function savedMovementKey(movement: SavedValidationCreditMovement): string {
+  return [
+    movement.movement_date.slice(0, 10), movement.movement_type === 'ABONO' ? 'ABONO' : 'COMPRA',
+    normalizeClientIdentity(movement.code ?? ''), Number(movement.quantity ?? 0), Number(movement.unit_value ?? 0),
+    Number(movement.discount ?? 0), Number(movement.total ?? 0), Number(movement.payment_amount ?? 0),
+  ].join('|')
 }

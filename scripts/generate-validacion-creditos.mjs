@@ -5,8 +5,11 @@ import XLSX from 'xlsx'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const workbookPath = path.resolve(__dirname, '..', 'CREDITOS (2).xlsm')
-const outputPath = path.resolve(__dirname, '..', 'frontend', 'src', 'data', 'validacion-creditos.json')
+const workspaceWorkbookPath = path.resolve(__dirname, '..', 'CREDITOS (4).xlsm')
+const downloadedWorkbookPath = path.resolve(process.env.USERPROFILE ?? '', 'Downloads', 'CREDITOS (4).xlsm')
+const defaultWorkbookPath = fs.existsSync(workspaceWorkbookPath) ? workspaceWorkbookPath : downloadedWorkbookPath
+const workbookPath = path.resolve(process.argv[2] || defaultWorkbookPath)
+const outputPath = path.resolve(__dirname, '..', process.argv[3] || 'frontend/src/data/validacion-creditos.json')
 
 const number = (value) => {
   if (value === null || value === undefined || value === '') return 0
@@ -82,13 +85,17 @@ for (const sheetName of workbook.SheetNames) {
     else if (key.includes('negocio')) columnMap.negocio = index
   })
 
-  const name = cleanText(nonEmptyRows[0][0]) || cleanText(sheetName)
+  const name = cleanText(nonEmptyRows[0].find((value) => typeof value === 'string' && cleanText(value))) || cleanText(sheetName)
   const transactions = []
   const issues = []
+  let previousRecordedBalance = 0
 
   for (const row of nonEmptyRows.slice(headerIndex + 1)) {
     const values = row.map((value) => (value === null || value === undefined ? null : typeof value === 'string' ? value.trim() : value))
     const detailColumn = columnMap.detalle ?? 2
+    const isRepeatedHeader = normalizeKey(values[detailColumn]) === 'detalle'
+      && normalizeKey(values[columnMap.negocio ?? 11]) === 'negocio'
+    if (isRepeatedHeader) continue
     const detalleRaw = values.slice(detailColumn, detailColumn + 4).find((value) => typeof value === 'string' && value.trim()) ?? values[detailColumn] ?? values[2] ?? null
     const detalle = cleanText(detalleRaw)
     const rawAbona = values[columnMap.abona ?? 9] ?? values[9] ?? null
@@ -106,9 +113,30 @@ for (const sheetName of workbook.SheetNames) {
     const cantidad = number(values[columnMap.cantidad ?? 5])
     const valor = number(values[columnMap.valor ?? 6])
     const descuento = number(values[columnMap.descuento ?? 7])
-    const total = number(rawTotal ?? (isAbono ? 0 : null))
+    const hasRecordedTotal = rawTotal !== null && rawTotal !== undefined && cleanText(rawTotal) !== ''
     const abona = number(rawAbona)
     const debe = number(rawDebe)
+    const calculatedTotal = cantidad > 0 && valor > 0 && descuento < cantidad * valor ? cantidad * valor - descuento : null
+    const balanceDerivedTotal = rawDebe !== null && rawDebe !== undefined && cleanText(rawDebe) !== ''
+      ? debe - previousRecordedBalance + abona
+      : null
+    const totalDerivado = (!hasRecordedTotal || number(rawTotal) <= 0) && !isAbono && (
+      (calculatedTotal !== null && calculatedTotal > 0)
+      || (balanceDerivedTotal !== null && balanceDerivedTotal > 0)
+    )
+    const total = totalDerivado
+      ? calculatedTotal !== null && calculatedTotal > 0
+        ? calculatedTotal
+        : balanceDerivedTotal
+      : hasRecordedTotal
+        ? number(rawTotal)
+        : isAbono
+        ? 0
+        : calculatedTotal !== null && calculatedTotal > 0
+          ? calculatedTotal
+          : balanceDerivedTotal !== null && balanceDerivedTotal > 0
+            ? balanceDerivedTotal
+            : 0
     const negocio = cleanText(values[columnMap.negocio ?? 11]) || null
 
     const transaction = {
@@ -119,6 +147,7 @@ for (const sheetName of workbook.SheetNames) {
       valor: valor || 0,
       descuento: descuento || 0,
       total: total || 0,
+      totalDerivado,
       abona: abona || 0,
       debe: debe || 0,
       tieneDebe: rawDebe !== null && cleanText(rawDebe) !== '',
@@ -131,20 +160,21 @@ for (const sheetName of workbook.SheetNames) {
     if (transaction.tipo === 'ABONO' && transaction.abona <= 0 && transaction.debe > 0) {
       issues.push({ fecha, detalle: transaction.detalle, issue: 'Abono sin valor registrado' })
     }
-    if (transaction.tipo === 'COMPRA' && transaction.total <= 0 && transaction.valor > 0) {
-      issues.push({ fecha, detalle: transaction.detalle, issue: 'Compra sin total calculado' })
+    if (transaction.tipo === 'COMPRA' && transaction.total <= 0 && (transaction.valor > 0 || transaction.cantidad > 0)) {
+      issues.push({ fecha, detalle: transaction.detalle, issue: 'Compra incompleta: falta cantidad, valor o total' })
     }
     transactions.push(transaction)
+    if (transaction.tieneDebe) previousRecordedBalance = transaction.debe
   }
 
   const totalCompras = transactions.filter((row) => row.tipo === 'COMPRA').reduce((sum, row) => sum + row.total, 0)
-  const totalAbonos = transactions.filter((row) => row.tipo === 'ABONO').reduce((sum, row) => sum + row.abona, 0)
+  const totalAbonos = transactions.reduce((sum, row) => sum + row.abona, 0)
   const recordedBalance = transactions.slice().reverse().find((row) => row.tieneDebe)?.debe
   const saldoPendiente = recordedBalance ?? totalCompras - totalAbonos
 
   people.push({
     name,
-    sheet: sheetName,
+    sheet: sheetName.trim(),
     transactions,
     totalCompras,
     totalAbonos,
@@ -171,7 +201,13 @@ const summary = {
   inconsistencias: people.reduce((sum, person) => sum + person.issues.length, 0),
 }
 
-const payload = { generatedAt: new Date().toISOString(), summary, people }
+const payload = {
+  generatedAt: new Date().toISOString(),
+  sourceWorkbook: path.basename(workbookPath),
+  sourceAsOf: fs.statSync(workbookPath).mtime.toISOString(),
+  summary,
+  people,
+}
 fs.mkdirSync(path.dirname(outputPath), { recursive: true })
 fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2))
 console.log(JSON.stringify(summary, null, 2))
