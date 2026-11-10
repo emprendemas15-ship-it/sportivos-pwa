@@ -277,8 +277,8 @@
 .credits-table td { height: auto; min-height: 42px; padding: 8px 5px; font-size: 11px; white-space: normal; overflow-wrap: anywhere; }
 .credits-table th:nth-child(1), .credits-table td:nth-child(1) { width: 7%; }
 .credits-table th:nth-child(2), .credits-table td:nth-child(2) { width: 5%; }
-.credits-table th:nth-child(3), .credits-table td:nth-child(3) { width: 12%; }
-.credits-table th:nth-child(4), .credits-table td:nth-child(4) { width: 4%; }
+.credits-table th:nth-child(3), .credits-table td:nth-child(3) { width: 6%; }
+.credits-table th:nth-child(4), .credits-table td:nth-child(4) { width: 10%; }
 .credits-table th:nth-child(5), .credits-table td:nth-child(5) { width: 6%; }
 .credits-table th:nth-child(6), .credits-table td:nth-child(6) { width: 7%; }
 .credits-table th:nth-child(7), .credits-table td:nth-child(7) { width: 12%; }
