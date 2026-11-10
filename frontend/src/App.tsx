@@ -1218,7 +1218,7 @@ function SummaryCard({ label, value, note, tone }: { label: string; value: strin
 }
 
 function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onPhysicalCount, onDelete, deletingRecord, onNotice, physicalCountsError }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onPhysicalCount: () => void; onDelete: (module: ModuleKey, row: WorkbookRow) => void; deletingRecord: string | null; onNotice: (message: string) => void; physicalCountsError: string }) {
-  const columns = useMemo(() => moduleColumns[module].filter((column) => column.key !== 'Columna1' && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO_AL_POR_MAYOR', 'COSTO MO', 'CONSIGNACION'].includes(normalizeExpenseText(column.key).toUpperCase()))), [module])
+  const columns = useMemo(() => moduleColumns[module].filter((column) => column.key !== 'Columna1' && !(module === 'CREDITOS' && column.key === 'DETALLE') && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO_AL_POR_MAYOR', 'COSTO MO', 'CONSIGNACION'].includes(normalizeExpenseText(column.key).toUpperCase()))), [module])
   const displayRows = useMemo(() => module === 'INVENTARIO_PT' || module === 'COSTOS_NO_PRODUCIDOS' ? [...rows].sort(compareProductDetails) : rows, [module, rows])
   const [page, setPage] = useState(0)
   const pageSize = 100
@@ -1664,7 +1664,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
   const isAbono = isAbonoType(values.TIPO)
   const isReturn = isCreditForm && isReturnType(values.TIPO)
   const isReduction = isCreditForm && (isAbono || isReturn)
-  const formColumns = useMemo(() => isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(isReturn && column.key === 'VALOR') && !(column.key === 'VALOR' && !isAbono) && !(column.key === 'MEDIO PAGO' && !isAbono && !isReturn)) : columns, [columns, isAbono, isCreditForm, isReturn])
+  const formColumns = useMemo(() => isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(column.key === 'DETALLE' && !isAbono) && !(isReturn && column.key === 'VALOR') && !(column.key === 'VALOR' && !isAbono) && !(column.key === 'MEDIO PAGO' && !isAbono && !isReturn)) : columns, [columns, isAbono, isCreditForm, isReturn])
   const selectedClient = String(values.NOMBRE ?? '').trim()
   const currentDebt = useMemo(() => isCreditForm ? getClientDebt(data.CREDITOS, selectedClient, data.CLIENTES) : 0, [data.CLIENTES, data.CREDITOS, isCreditForm, selectedClient])
   const returnValue = Math.max(0, calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO))
@@ -1728,6 +1728,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
           next.COMENTARIO = 'Abono'
         } else if (current.COMENTARIO === 'Abono' || current.TIPO === 'Abono') {
           next.COMENTARIO = ''
+          next.DETALLE = ''
           next.VALOR = ''
         }
       }
@@ -1749,7 +1750,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
     setValues((current) => ({ ...current, CODIGO: option.code, DETALLE: option.detail, ...(isCreditForm || module === 'ENTRADAS' ? { PRECIO: String(isCreditForm && refundable ? refundable.unitPrice : productUnitPrice(option.code, module, data)) } : {}), ...(module === 'COSTOS_NO_PRODUCIDOS' ? existingCost ? { COSTO: String(existingCost.COSTO ?? ''), 'COSTO FIJO': String(existingCost['COSTO FIJO'] ?? 500), 'PRECIO AL PUBLICO': String(existingCost['PRECIO AL PUBLICO'] ?? '') } : { COSTO: '', 'PRECIO AL PUBLICO': '' } : {}) }))
     setError('')
   }
-  function isDisabled(key: string) { return isCreditForm && isAbono && ['CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO'].includes(key) }
+  function isDisabled(key: string) { return isCreditForm && isAbono && ['CODIGO', 'CANT', 'DESCUENTO', 'PRECIO'].includes(key) }
   function isRequired(column: { key: string; required?: boolean }) {
     if (!isCreditForm) return Boolean(column.required)
     if (['TIPO', 'FECHA', 'NOMBRE'].includes(column.key)) return true
@@ -1817,7 +1818,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
           const customerSelect = isCreditForm && column.key === 'NOMBRE'
           const codeSearch = column.key === 'CODIGO'
           const codeOptions: CodeSearchOption[] = module === 'COSTOS_NO_PRODUCIDOS' ? costCatalogOptions : isReturn ? returnOptions.map((item) => ({ code: item.code, detail: item.detail, hint: `${item.available} disp.` })) : productRows.length ? productRows.map((item) => ({ code: String(item.CODIGO ?? ''), detail: String(item.DETALLE ?? ''), hint: `Stock ${Number(item.STOCK ?? 0)}`, disabled: module !== 'ENTRADAS' && Number(item.STOCK ?? 0) <= 0 })) : inventoryCodeOptions
-          return <label key={column.key} className={disabled ? 'field-disabled' : ''}>{codeSearch ? 'CÓDIGO (puedes escribirlo o buscar por detalle)' : column.label}{isRequired(column) && <span>*</span>}
+          return <label key={column.key} className={disabled ? 'field-disabled' : ''}>{codeSearch ? 'CÓDIGO (puedes escribirlo o buscar por detalle)' : isAbono && column.key === 'DETALLE' ? 'Detalle del abono' : column.label}{isRequired(column) && <span>*</span>}
             {customerSelect
               ? <SearchableClientInput value={String(values[column.key] ?? '')} options={clientNames} required={isRequired(column)} onChange={(value) => update('NOMBRE', value)} onSelect={(name) => update('NOMBRE', name)} />
               : codeSearch ? <SearchableCodeInput value={String(values.CODIGO ?? '')} options={codeOptions} onChange={updateCode} onSelect={chooseCode} allowCustom required={isRequired(column)} disabled={disabled} placeholder="Escribe un código o busca por detalle" ariaLabel={`${column.label}: escribir código o buscar por detalle`} />
@@ -2185,7 +2186,7 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     next.NOMBRE = clientName
     if (isAbonoType(type)) {
       next.CODIGO = null
-      next.DETALLE = null
+      next.DETALLE = String(next.DETALLE ?? '').trim() || null
       next.CANT = null
       next.DESCUENTO = 0
       next.COMENTARIO = 'Abono'
