@@ -1269,7 +1269,8 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
               const value = module === 'GASTOS' && column.key === 'DETALLE'
                 ? String(row.DETALLE ?? '').trim() || String(row.COMENTARIOS ?? '').trim() || row.CODIGO_MP
                 : row[column.key]
-              return <td key={column.key} data-credit-label={module === 'CREDITOS' ? column.label : undefined} data-credit-field={module === 'CREDITOS' ? column.key : undefined}>{formatCell(value, column.key)}</td>
+              const displayValue = module === 'CREDITOS' && column.key === 'NOMBRE' ? getValidationClientSheet(value) ?? value : value
+              return <td key={column.key} data-credit-label={module === 'CREDITOS' ? column.label : undefined} data-credit-field={module === 'CREDITOS' ? column.key : undefined}>{formatCell(displayValue, column.key)}</td>
             })}
             {module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => { void import('./lib/client-statement').then(({ downloadClientStatement }) => downloadClientStatement(clientName, statementRows, clientSnapshot ? { openingBalance: clientSnapshot.balance, openingDate: clientSnapshot.asOf } : undefined)).catch((error: unknown) => onNotice('No se pudo generar el estado de cuenta. ' + (error instanceof Error ? error.message : 'Error desconocido.'))) }}>Descargar PDF</button><button type="button" className="small-action" onClick={() => { void import('./lib/client-statement').then(({ shareClientStatement }) => shareClientStatement(clientName, statementRows, onNotice, clientSnapshot ? { openingBalance: clientSnapshot.balance, openingDate: clientSnapshot.asOf } : undefined)).catch((error: unknown) => onNotice('No se pudo compartir el estado de cuenta. ' + (error instanceof Error ? error.message : 'Error desconocido.'))) }}>Compartir</button></div></td></>}
             {canDelete && <td className={`row-actions${module === 'CREDITOS' ? ' credit-action-cell' : ''}`} data-credit-label={module === 'CREDITOS' ? 'Acciones' : undefined} data-credit-field={module === 'CREDITOS' ? 'ACCIONES' : undefined}><button type="button" className="delete-button" disabled={deletingRecord !== null} onClick={() => onDelete(module, row)} aria-label={`Borrar registro de ${module}`} title="Borrar registro">{deletingRecord === recordKey ? 'Borrando…' : 'Borrar'}</button></td>}
@@ -1644,7 +1645,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, on
   const data = useMemo(() => ({ ...sourceData, INVENTARIO_PT: getRows('INVENTARIO_PT', sourceData, physicalCounts) }), [sourceData, physicalCounts])
   const columns = useMemo(() => moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'CONTEO_FISICO', 'CONTEO FISICO', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'VALOR_PRODUCTO', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS')), [module])
   const clientNames = useMemo(() => {
-    const names = new Map<string, string>()
+    const names = new Map(validationCreditPortfolio.map((person) => [normalizeClientName(person.sheet), person.sheet]))
     ;[...data.CLIENTES, ...data.CREDITOS].forEach((row) => {
       const name = String(row.NOMBRE ?? '').trim()
       const key = normalizeClientName(name)
@@ -1926,6 +1927,11 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
       if (!clients.has(identity)) clients.set(identity, { NOMBRE: getValidationClientSheet(row.NOMBRE) ?? String(row.NOMBRE ?? '').trim() })
       const snapshot = snapshots.get(identity)
       if (!snapshot || rowCreatedAtValue(row) > snapshot.asOf) balancesByClient.set(identity, (balancesByClient.get(identity) ?? 0) + getCreditMovementDelta(row))
+    })
+    validationCreditPortfolio.forEach((person) => {
+      const identity = normalizeClientName(person.sheet)
+      if (!clients.has(identity)) clients.set(identity, { NOMBRE: person.sheet })
+      if (!balancesByClient.has(identity)) balancesByClient.set(identity, person.saldoPendiente)
     })
     const balances: WorkbookRow[] = [...clients.entries()].map(([identity, row]) => ({ ...row, Columna1: balancesByClient.get(identity) ?? 0 }))
     return balances.sort((a, b) => String(a.NOMBRE ?? '').localeCompare(String(b.NOMBRE ?? ''), 'es', { sensitivity: 'base' }))
