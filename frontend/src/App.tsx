@@ -1894,7 +1894,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
     return [...names.values()].filter((name) => !hidden.has(normalizeClientName(name))).sort(compareClientNames)
   }, [data.CLIENTES, data.CREDITOS, hiddenClientRecords])
   const creditKeys = ['TIPO', 'FECHA', 'NOMBRE', 'CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO', 'VALOR', 'COMENTARIO', 'MEDIO PAGO']
-  const [values, setValues] = useState<WorkbookRow>(() => Object.fromEntries(columns.map((column) => [column.key, column.type === 'date' ? localDateInputValue() : column.key === 'TIPO' ? CREDIT_TYPE : column.key === 'MES' && module === 'GASTOS' ? 'Otro' : column.key === 'COSTO FIJO' ? 500 : column.key === 'NOMBRE' && clientNames[0] ? clientNames[0] : column.type === 'number' ? '' : ''])) as WorkbookRow)
+  const [values, setValues] = useState<WorkbookRow>(() => Object.fromEntries(columns.map((column) => [column.key, column.type === 'date' ? localDateInputValue() : column.key === 'TIPO' ? CREDIT_TYPE : column.key === 'MES' && module === 'GASTOS' ? 'Otro' : column.key === 'COSTO FIJO' ? 500 : column.type === 'number' ? '' : ''])) as WorkbookRow)
   const [error, setError] = useState('')
   const isAbono = isAbonoType(values.TIPO)
   const isReturn = isCreditForm && isReturnType(values.TIPO)
