@@ -55,7 +55,7 @@ export async function downloadValidationCreditHistory(person: ValidationCreditPe
   const border = rgb(0.84, 0.89, 0.85)
   const muted = rgb(0.39, 0.46, 0.41)
   const white = rgb(1, 1, 1)
-  const filenameName = safeText(person.name).toLowerCase().replace(/\s+/g, '-')
+  const filenameName = safeText(person.sheet).toLowerCase().replace(/\s+/g, '-')
   const generatedAt = new Date().toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })
   const transactions = person.transactions
     .map((transaction, index) => ({ transaction, index }))
@@ -74,7 +74,7 @@ export async function downloadValidationCreditHistory(person: ValidationCreditPe
     drawText(page, "SPORTIVO'S", margin, height - 42, 17, bold, white)
     drawText(page, 'HISTORIAL COMPLETO DE CARTERA', margin, height - 64, 11, bold, rgb(0.86, 0.93, 0.87))
     drawText(page, `Generado: ${generatedAt}`, 390, height - 42, 8, regular, white, 160)
-    drawText(page, `Persona: ${person.name}`, margin, height - 88, 10, bold, white, tableWidth)
+    drawText(page, `Persona: ${person.sheet}`, margin, height - 88, 10, bold, white, tableWidth)
     if (first) {
       page.drawRectangle({ x: margin, y: 669, width: tableWidth, height: 62, color: pale, borderColor: border, borderWidth: 0.8 })
       const summaryColumns = [
