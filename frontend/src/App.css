@@ -258,16 +258,40 @@
 .validation-credit-history-person select { width: 100%; height: 42px; padding: 0 10px; border: 1px solid #dfe7df; border-radius: 6px; color: #34463a; background: #fff; font: inherit; font-size: 12px; }
 .validation-credit-actions-hint { margin: -4px 0 0; color: #718077; font-size: 11px; line-height: 1.5; }
 .validation-credit-history-wrap { width: 100%; max-height: none; max-width: 100%; overflow: visible; }
-.validation-credit-history-table, .validation-credit-history-table-no-actions { width: 100%; min-width: 0; table-layout: fixed; }
-.validation-credit-history-table thead { display: none; }
-.validation-credit-history-table tbody { display: grid; gap: 8px; }
-.validation-credit-history-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; overflow: hidden; border: 1px solid #e5ece6; border-radius: 8px; background: #fff; }
-.validation-credit-history-table tbody td { display: grid; min-width: 0; height: auto; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 4px; padding: 9px 10px; border-top: 0; color: #3f5046; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
-.validation-credit-history-table tbody td::before { color: #788980; content: attr(data-label); font-size: 9px; font-weight: 750; letter-spacing: .3px; text-transform: uppercase; }
-.validation-credit-history-table tbody td:first-child { padding-left: 10px; }
-.validation-credit-history-table tbody .validation-credit-history-detail, .validation-credit-history-table tbody .validation-credit-actions-cell { grid-column: 1 / -1; }
+.validation-credit-history-table { display: table; width: 100%; min-width: 0; table-layout: fixed; }
+.validation-credit-history-table thead { display: table-header-group; }
+.validation-credit-history-table tbody { display: table-row-group; }
+.validation-credit-history-table tbody tr { display: table-row; min-width: 0; overflow: visible; border: 0; border-radius: 0; background: transparent; }
+.validation-credit-history-table th, .validation-credit-history-table td { min-width: 0; padding: 8px 4px; font-size: 10px; line-height: 1.3; white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.validation-credit-history-table th { font-size: 9px; }
+.validation-credit-history-table th:nth-child(1) { width: 10%; }
+.validation-credit-history-table th:nth-child(2) { width: 8%; }
+.validation-credit-history-table th:nth-child(3) { width: 18%; }
+.validation-credit-history-table th:nth-child(4) { width: 7%; }
+.validation-credit-history-table th:nth-child(5), .validation-credit-history-table th:nth-child(6), .validation-credit-history-table th:nth-child(7) { width: 10%; }
+.validation-credit-history-table th:nth-child(8), .validation-credit-history-table th:nth-child(9) { width: 8%; }
+.validation-credit-history-table th:nth-child(10) { width: 11%; }
+.validation-credit-history-table td[data-label="Cantidad"], .validation-credit-history-table td[data-label="Valor"], .validation-credit-history-table td[data-label="Abono"], .validation-credit-history-table td[data-label="Debe"] { text-align: right; }
 .validation-credit-history-table tbody .validation-credit-history-detail { color: #284c36; font-weight: 700; }
-.validation-credit-history-table tbody .validation-credit-actions-cell { justify-content: flex-end; border-top: 1px solid #edf1ed; }
+.validation-credit-history-table .validation-credit-row-actions .delete-button { min-height: 26px; padding: 4px 6px; font-size: 9px; white-space: normal; }
+.validation-credit-history-table-no-actions { width: 100%; min-width: 0; table-layout: fixed; }
+@media (max-width: 760px) {
+  .validation-credit-history-table th, .validation-credit-history-table td { padding: 6px 2px; font-size: 8px; }
+  .validation-credit-history-table th { font-size: 8px; }
+  .validation-credit-history-table th:nth-child(1) { width: 14%; }
+  .validation-credit-history-table th:nth-child(2) { width: 10%; }
+  .validation-credit-history-table th:nth-child(3) { width: 19%; }
+  .validation-credit-history-table th:nth-child(4) { width: 7%; }
+  .validation-credit-history-table th:nth-child(5), .validation-credit-history-table th:nth-child(6), .validation-credit-history-table th:nth-child(7) { width: 10%; }
+  .validation-credit-history-table th:nth-child(8) { width: 9%; }
+  .validation-credit-history-table th:nth-child(9), .validation-credit-history-table td:nth-child(9) { display: none; }
+  .validation-credit-history-table th:nth-child(10) { width: 10%; }
+  .validation-credit-history-table .validation-credit-row-actions .delete-button { min-height: 24px; padding: 3px 2px; font-size: 8px; }
+}
+@media (max-width: 420px) {
+  .validation-credit-history-table .validation-credit-row-actions .delete-button { font-size: 0; }
+  .validation-credit-history-table .validation-credit-row-actions .delete-button::after { content: '×'; font-size: 13px; }
+}
 .validation-credit-row-actions { display: flex; align-items: center; gap: 7px; }
 .validation-credit-row-actions .small-action { min-height: 32px; padding: 0 11px; color: #2e6946; font-size: 11px; }
 .validation-credit-row-actions .delete-button { min-height: 32px; }
