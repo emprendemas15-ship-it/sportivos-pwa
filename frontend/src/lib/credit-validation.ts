@@ -2,6 +2,7 @@ import validationCreditDataRaw from '../data/validacion-creditos.json'
 
 export type ValidationCreditTransaction = {
   savedMovementId?: string
+  sourceTransactionKey?: string
   fecha: string | null
   codigo: string | null
   detalle: string | null
@@ -88,6 +89,7 @@ export function getValidationCreditPeople(search: string = '') {
 export function mergeValidationCreditMovements(
   movements: SavedValidationCreditMovement[],
   clientNames: string[] = [],
+  deletedTransactions: ReadonlySet<string> = new Set(),
 ): ValidationCreditPerson[] {
   const grouped = new Map<string, SavedValidationCreditMovement[]>()
   movements.forEach((movement) => {
@@ -117,7 +119,29 @@ export function mergeValidationCreditMovements(
     })
   })
 
-  return [...peopleByIdentity.values()].map((person) => {
+  return [...peopleByIdentity.values()].map((sourcePerson) => {
+    const sourceKeys = getValidationCreditTransactionKeys(sourcePerson.sheet, sourcePerson.transactions)
+    const sourceTransactions = sourcePerson.transactions
+      .filter((_, index) => !deletedTransactions.has(sourceKeys[index]))
+    const sourceDelta = sourcePerson.transactions.reduce((total, transaction) => total + (transaction.tipo === 'ABONO' ? -transaction.abona : transaction.total || transaction.valor), 0)
+    const openingBalance = sourcePerson.saldoPendiente - sourceDelta
+    let sourceBalance = openingBalance
+    const recalculatedSourceTransactions = sourcePerson.transactions.map((transaction, index) => ({ transaction, key: sourceKeys[index] }))
+      .filter(({ key }) => !deletedTransactions.has(key))
+      .map(({ transaction, key }) => {
+      sourceBalance += transaction.tipo === 'ABONO' ? -transaction.abona : transaction.total || transaction.valor
+      return { ...transaction, sourceTransactionKey: key, debe: sourceBalance, tieneDebe: true }
+    })
+    const person: ValidationCreditPerson = {
+      ...sourcePerson,
+      transactions: recalculatedSourceTransactions,
+      totalCompras: sourceTransactions.reduce((total, transaction) => total + (transaction.tipo === 'COMPRA' ? transaction.total || transaction.valor : 0), 0),
+      totalAbonos: sourceTransactions.reduce((total, transaction) => total + transaction.abona, 0),
+      totalDescuentos: sourceTransactions.reduce((total, transaction) => total + transaction.descuento, 0),
+      saldoPendiente: sourceBalance,
+      ultimoMovimiento: sourceTransactions.reduce<string | null>((latest, transaction) => transaction.fecha && (!latest || transaction.fecha > latest) ? transaction.fecha : latest, null),
+      estado: sourceBalance > 0 ? 'PENDIENTE' : 'AL_DIA',
+    }
     const baselineTransactionCounts = new Map<string, number>()
     person.transactions.forEach((transaction) => {
       const key = validationTransactionKey(transaction)
@@ -134,8 +158,7 @@ export function mergeValidationCreditMovements(
         return false
       })
     const recordedBalance = [...person.transactions].reverse().find((transaction) => transaction.tieneDebe)?.debe
-    const openingBalance = recordedBalance ?? person.saldoPendiente
-    let runningBalance = openingBalance
+    let runningBalance = recordedBalance ?? person.saldoPendiente
     const addedPurchases = additions.filter((movement) => movement.movement_type === 'CREDITO').reduce((total, movement) => total + movement.total, 0)
     const addedPayments = additions.filter((movement) => movement.movement_type === 'ABONO').reduce((total, movement) => total + movement.payment_amount, 0)
     const addedDiscounts = additions.reduce((total, movement) => total + movement.discount, 0)
@@ -176,6 +199,21 @@ export function mergeValidationCreditMovements(
       ultimoMovimiento,
       estado: saldoPendiente > 0 ? 'PENDIENTE' : 'AL_DIA',
     }
+  })
+}
+
+export function getValidationCreditTransactionKeys(personSheet: string, transactions: ValidationCreditTransaction[]): string[] {
+  const occurrenceCounts = new Map<string, number>()
+  return transactions.map((transaction) => {
+    const baseKey = JSON.stringify([
+      normalizeClientIdentity(personSheet), transaction.fecha ?? '', transaction.tipo,
+      normalizeClientIdentity(transaction.codigo ?? ''), normalizeClientIdentity(transaction.detalle ?? ''),
+      Number(transaction.cantidad ?? 0), Number(transaction.valor ?? 0), Number(transaction.descuento ?? 0),
+      Number(transaction.total ?? 0), Number(transaction.abona ?? 0), normalizeClientIdentity(transaction.negocio ?? ''),
+    ])
+    const occurrence = occurrenceCounts.get(baseKey) ?? 0
+    occurrenceCounts.set(baseKey, occurrence + 1)
+    return `${baseKey}#${occurrence}`
   })
 }
 

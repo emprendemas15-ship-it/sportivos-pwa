@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
-import { getValidationCreditSummary, mergeValidationCreditMovements, validationCreditPortfolio, validationCreditSourceAsOf, validationCreditSourceWorkbook, type SavedValidationCreditMovement, type ValidationCreditPerson } from './lib/credit-validation'
+import { getValidationCreditSummary, mergeValidationCreditMovements, validationCreditPortfolio, validationCreditSourceAsOf, validationCreditSourceWorkbook, type SavedValidationCreditMovement, type ValidationCreditPerson, type ValidationCreditTransaction } from './lib/credit-validation'
 
 const currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const number = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 })
@@ -48,9 +48,11 @@ type HiddenClientRecord = {
   hidden_from_validation: boolean
   updated_at: string
 }
+type DeletedValidationHistoryRecord = { client_identity: string; transaction_key: string; adjust_stock: boolean }
 
 const validationCreditTable = 'validacion_creditos_movimientos'
 const hiddenClientTable = 'sportivos_clientes_eliminados'
+const deletedValidationHistoryTable = 'validacion_creditos_registros_eliminados'
 const validationCreditBusinesses = ['COLIPETS', 'OTRO', 'SPORTIVOS']
 const validationCreditClientSheets = new Map(validationCreditPortfolio.flatMap((person) => [person.name, person.sheet].map((name) => [normalizeClientName(name), person.sheet] as const)))
 const renamedValidationCreditClient = validationCreditPortfolio.find((person) => normalizeClientName(person.sheet) === normalizeClientName('YAMIRLEY AMIGA DE ANGELA VIP'))
@@ -165,6 +167,8 @@ function App() {
   const [showPhysicalCount, setShowPhysicalCount] = useState(false)
   const [hiddenClientRecords, setHiddenClientRecords] = useState<HiddenClientRecord[]>([])
   const [hiddenClientRecordsError, setHiddenClientRecordsError] = useState('')
+  const [deletedHistoryRecords, setDeletedHistoryRecords] = useState<DeletedValidationHistoryRecord[]>([])
+  const [deletedHistoryError, setDeletedHistoryError] = useState('')
 
   const refreshHiddenClientRecords = useCallback(async () => {
     if (!supabase) return
@@ -198,8 +202,32 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    const refresh = async () => {
+      if (!supabase) return
+      const result = await readAllDeletedValidationHistoryRecords(supabase)
+      if (!active) return
+      if (result.error) {
+        setDeletedHistoryError('Para borrar movimientos importados ejecuta la migración supabase/migrations/20261110140000_validacion_creditos_borrado_historial.sql. ' + result.error.message)
+        return
+      }
+      setDeletedHistoryError('')
+      setDeletedHistoryRecords(result.data)
+    }
+    void refresh()
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh() }, 60_000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
+
+  const deletedHistoryKeys = useMemo(() => new Set(deletedHistoryRecords.map((record) => record.transaction_key)), [deletedHistoryRecords])
   const rows = useMemo(() => {
-    let currentRows = getRows(active, data, physicalCounts)
+    let currentRows = getRows(active, data, physicalCounts, deletedHistoryKeys)
     if (active === 'CLIENTES') {
       const hidden = new Set(hiddenClientRecords.filter((record) => record.hidden_from_clients).map((record) => record.client_identity))
       currentRows = currentRows.filter((row) => !hidden.has(normalizeClientName(row.NOMBRE)))
@@ -207,7 +235,7 @@ function App() {
     }
     if (active === 'MENU' || active === 'BALANCE' || active === 'CREDITOS') return currentRows
     return [...currentRows].sort((a, b) => rowCreatedAtValue(b) - rowCreatedAtValue(a))
-  }, [active, data, physicalCounts, hiddenClientRecords])
+  }, [active, data, physicalCounts, hiddenClientRecords, deletedHistoryKeys])
   const filteredRows = useMemo(() => {
     if (active === 'CREDITOS') return filterCreditRows(rows, creditFilters)
     const needle = search.trim().toLowerCase()
@@ -469,9 +497,9 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} physicalCounts={physicalCounts} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} hiddenClientRecordsError={hiddenClientRecordsError} onDeletePerson={deleteValidationPerson} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onPhysicalCount={() => setShowPhysicalCount(true)} onDelete={deleteRow} onDeleteClient={deleteClient} deletingRecord={deletingRecord} hiddenClientRecordsError={hiddenClientRecordsError} onNotice={flashNotice} physicalCountsError={physicalCountsError} />}
+      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} physicalCounts={physicalCounts} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} hiddenClientRecordsError={hiddenClientRecordsError} deletedHistoryRecords={deletedHistoryRecords} deletedHistoryError={deletedHistoryError} onDeletedHistoryRecord={(record) => setDeletedHistoryRecords((current) => current.some((item) => item.client_identity === record.client_identity && item.transaction_key === record.transaction_key) ? current : [...current, record])} onDeletePerson={deleteValidationPerson} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onPhysicalCount={() => setShowPhysicalCount(true)} onDelete={deleteRow} onDeleteClient={deleteClient} deletingRecord={deletingRecord} hiddenClientRecordsError={hiddenClientRecordsError} deletedHistoryRecords={deletedHistoryRecords} onNotice={flashNotice} physicalCountsError={physicalCountsError} />}
     </main>
-    {showForm && active !== 'MENU' && <RecordForm module={active} data={data} physicalCounts={physicalCounts} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} onClose={() => setShowForm(false)} onSave={saveRow} />}
+    {showForm && active !== 'MENU' && <RecordForm module={active} data={data} physicalCounts={physicalCounts} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} deletedHistoryRecords={deletedHistoryRecords} onClose={() => setShowForm(false)} onSave={saveRow} />}
     {showPhysicalCount && <PhysicalInventoryCountModal data={data} counts={physicalCounts} setupError="" onClose={() => setShowPhysicalCount(false)} onSave={savePhysicalCounts} />}
     {stockDeleteCandidate && <CreditStockDeleteModal row={stockDeleteCandidate} busy={Boolean(deletingRecord)} onClose={() => setStockDeleteCandidate(null)} onConfirm={(adjustStock) => { const row = stockDeleteCandidate; setStockDeleteCandidate(null); void deleteRow('CREDITOS', row, adjustStock) }} />}
   </div>
@@ -700,7 +728,7 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   return next
 }
 
-function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenClientRecordsError, onDeletePerson }: { data: Record<ModuleKey, WorkbookRow[]>; periodPolicy: PeriodPolicy; hiddenClientRecords: HiddenClientRecord[]; hiddenClientRecordsError: string; onDeletePerson: (person: ValidationCreditPerson) => Promise<void> }) {
+function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenClientRecordsError, deletedHistoryRecords, deletedHistoryError, onDeletedHistoryRecord, onDeletePerson }: { data: Record<ModuleKey, WorkbookRow[]>; periodPolicy: PeriodPolicy; hiddenClientRecords: HiddenClientRecord[]; hiddenClientRecordsError: string; deletedHistoryRecords: DeletedValidationHistoryRecord[]; deletedHistoryError: string; onDeletedHistoryRecord: (record: DeletedValidationHistoryRecord) => void; onDeletePerson: (person: ValidationCreditPerson) => Promise<void> }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [movements, setMovements] = useState<SavedValidationCreditMovement[]>([])
@@ -715,6 +743,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
   const [movementFormError, setMovementFormError] = useState('')
   const [movementActionError, setMovementActionError] = useState('')
   const [movementNotice, setMovementNotice] = useState('')
+  const [historyDeleteCandidate, setHistoryDeleteCandidate] = useState<{ person: string; transaction: ValidationCreditTransaction } | null>(null)
   const [deletingMovementId, setDeletingMovementId] = useState<string | null>(null)
   const [deletingPersonSheet, setDeletingPersonSheet] = useState<string | null>(null)
   const [personQuery, setPersonQuery] = useState('')
@@ -738,10 +767,11 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
   const registeredClientNames = useMemo(() => [...data.CLIENTES, ...data.CREDITOS]
     .map((row) => String(row.NOMBRE ?? '').trim())
     .filter(Boolean), [data.CLIENTES, data.CREDITOS])
-  const allPeople = useMemo(() => mergeValidationCreditMovements(movements, registeredClientNames)
+  const deletedHistoryKeys = useMemo(() => new Set(deletedHistoryRecords.map((record) => record.transaction_key)), [deletedHistoryRecords])
+  const allPeople = useMemo(() => mergeValidationCreditMovements(movements, registeredClientNames, deletedHistoryKeys)
     .filter((person) => !hiddenClientRecords.some((record) => record.hidden_from_validation && record.client_identity === normalizeClientName(person.sheet)))
     .slice()
-    .sort((a, b) => compareClientNames(a.sheet, b.sheet)), [movements, registeredClientNames, hiddenClientRecords])
+    .sort((a, b) => compareClientNames(a.sheet, b.sheet)), [movements, registeredClientNames, hiddenClientRecords, deletedHistoryKeys])
   const summary = useMemo(() => ({
     ...baseSummary,
     totalPersonas: allPeople.length,
@@ -751,8 +781,8 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
     carteraPendiente: allPeople.reduce((sum, person) => sum + Math.max(0, person.saldoPendiente), 0),
     personasConSaldoPendiente: allPeople.filter((person) => person.saldoPendiente > 0).length,
     personasAlDia: allPeople.filter((person) => person.saldoPendiente <= 0).length,
-    registros: baseSummary.registros + movements.length,
-  }), [allPeople, baseSummary, movements.length])
+    registros: baseSummary.registros - deletedHistoryRecords.length + movements.length,
+  }), [allPeople, baseSummary, movements.length, deletedHistoryRecords.length])
   const people = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase()
     if (!needle) return allPeople
@@ -987,6 +1017,38 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
     }
   }
 
+  async function deleteImportedValidationMovement(personSheet: string, row: ValidationCreditTransaction, adjustStock: boolean) {
+    const transactionKey = row.sourceTransactionKey
+    if (!transactionKey || !supabase || deletingMovementId) return
+    setDeletingMovementId(transactionKey)
+    setMovementActionError('')
+    try {
+      const result = await supabase.rpc('delete_validation_credit_history_transaction', {
+        p_client_identity: normalizeClientName(personSheet),
+        p_transaction_key: transactionKey,
+        p_adjust_stock: adjustStock,
+        p_code: row.codigo,
+        p_quantity: row.cantidad,
+        p_movement_type: row.tipo,
+      })
+      if (result.error) throw new Error(result.error.message)
+      onDeletedHistoryRecord({ client_identity: normalizeClientName(personSheet), transaction_key: transactionKey, adjust_stock: adjustStock })
+      const stockMessage = adjustStock && row.tipo === 'COMPRA' && row.cantidad > 0 && row.codigo
+        ? ` Se repusieron ${number.format(row.cantidad)} unidades al inventario.`
+        : ' El inventario no cambió.'
+      setMovementNotice(`Registro histórico eliminado. El saldo de ${personSheet} se recalculó automáticamente.${stockMessage}`)
+      setHistoryDeleteCandidate(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido.'
+      const setupHint = message.toLowerCase().includes('function') || message.toLowerCase().includes('schema cache') || message.toLowerCase().includes('does not exist')
+        ? ' Ejecuta supabase/migrations/20261110140000_validacion_creditos_borrado_historial.sql en Supabase y vuelve a intentar.'
+        : ''
+      setMovementActionError('No se pudo eliminar el registro histórico. ' + message + setupHint)
+    } finally {
+      setDeletingMovementId(null)
+    }
+  }
+
   async function deleteValidationPersonRecord(person: ValidationCreditPerson) {
     if (deletingPersonSheet) return
     const savedMovements = movements.filter((movement) => normalizeClientName(movement.person_sheet) === normalizeClientName(person.sheet)).length
@@ -1074,6 +1136,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
     {!periodPolicy.canRegister && <p className="sync-warning" role="alert">{periodPolicy.message}</p>}
     {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
     {hiddenClientRecordsError && <p className="sync-warning" role="alert">El borrado de personas completas necesita la migración supabase/migrations/20261110120000_clientes_eliminados.sql. {hiddenClientRecordsError}</p>}
+    {deletedHistoryError && <p className="sync-warning" role="alert">{deletedHistoryError}</p>}
     {movementNotice && <p className="validation-credit-notice" role="status">{movementNotice}</p>}
     {movementActionError && <p className="form-error" role="alert">{movementActionError}</p>}
     {isLoadingMovements && <p className="validation-credit-loading" role="status">Cargando movimientos del módulo...</p>}
@@ -1096,7 +1159,6 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
         <tbody>
           {people.length === 0 ? <tr><td colSpan={7} className="empty-state"><strong>Sin coincidencias</strong><span>No aparecen personas con ese filtro.</span></td></tr> : people.map((person) => {
             const recentTransactions = person.transactions
-            const hasSavedRecentMovements = recentTransactions.some((transaction) => transaction.savedMovementId)
             const isSelected = selected === person.sheet
             return <Fragment key={person.sheet}>
               <tr className={`validation-credit-person-row${isSelected ? ' selected-row' : ''}`} onClick={() => setSelected(isSelected ? null : person.sheet)} style={{ cursor: 'pointer' }}>
@@ -1112,9 +1174,9 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
                 <div className="validation-credit-person-details">
                   <div className="validation-credit-person-heading"><strong>Ficha de {person.sheet}</strong><button className="small-action" type="button" onClick={() => openMovementForm(person.sheet)}>Registrar crédito o abono</button></div>
                   <p className="validation-credit-actions-hint">Puedes eliminar movimientos registrados uno a uno o quitar a la persona completa de VALIDACION CREDITOS, incluido su historial importado.</p>
-                  <div className="table-wrap validation-credit-history-wrap"><table className={`validation-credit-history-table${hasSavedRecentMovements ? '' : ' validation-credit-history-table-no-actions'}`}>
-                    <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Negocio</th>{hasSavedRecentMovements && <th>Acciones</th>}</tr></thead>
-                    <tbody>{recentTransactions.map((row, index) => <tr key={row.savedMovementId ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td>{row.negocio ?? '—'}</td>{hasSavedRecentMovements && <td className="validation-credit-actions-cell">{row.savedMovementId && <div className="validation-credit-row-actions"><button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => void deleteValidationMovement(row, person.sheet, person.sheet)} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.sheet}`} title="Eliminar movimiento">{deletingMovementId === row.savedMovementId ? 'Eliminando…' : 'Eliminar'}</button></div>}</td>}</tr>)}</tbody>
+                  <div className="table-wrap validation-credit-history-wrap"><table className="validation-credit-history-table">
+                    <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Negocio</th><th>Acciones</th></tr></thead>
+                    <tbody>{recentTransactions.map((row, index) => <tr key={row.savedMovementId ?? row.sourceTransactionKey ?? `${person.sheet}-${index}`}><td>{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td>{row.codigo ?? '—'}</td><td>{row.detalle ?? '—'}</td><td>{row.cantidad || 0}</td><td>{currency.format(row.total || row.valor || 0)}</td><td>{currency.format(row.abona)}</td><td>{currency.format(row.debe)}</td><td>{row.tipo}</td><td>{row.negocio ?? '—'}</td><td className="validation-credit-actions-cell"><div className="validation-credit-row-actions"><button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => row.savedMovementId ? void deleteValidationMovement(row, person.sheet, person.sheet) : setHistoryDeleteCandidate({ person: person.sheet, transaction: row })} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.sheet}`} title="Eliminar movimiento">{deletingMovementId === (row.savedMovementId ?? row.sourceTransactionKey) ? 'Eliminando…' : 'Eliminar'}</button></div></td></tr>)}</tbody>
                   </table></div>
                 </div>
               </td></tr>}
@@ -1129,6 +1191,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
       {historyPdfError && <p className="form-error" role="alert">{historyPdfError}</p>}
       <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => setShowHistoryPdfModal(false)} disabled={isGeneratingHistoryPdf}>Cancelar</button><button className="primary-button" type="button" onClick={() => void generatePersonHistoryPdf()} disabled={isGeneratingHistoryPdf || !historyPdfPersonSheet}>{isGeneratingHistoryPdf ? 'Generando PDF...' : 'Descargar historial completo'}</button></div>
     </section></div>}
+    {historyDeleteCandidate && <ValidationHistoryDeleteModal person={historyDeleteCandidate.person} row={historyDeleteCandidate.transaction} personBalance={allPeople.find((person) => person.sheet === historyDeleteCandidate.person)?.saldoPendiente ?? 0} busy={deletingMovementId !== null} onClose={() => setHistoryDeleteCandidate(null)} onConfirm={(adjustStock) => void deleteImportedValidationMovement(historyDeleteCandidate.person, historyDeleteCandidate.transaction, adjustStock)} />}
     {showMovementForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSavingMovement) setShowMovementForm(false) }}><section className="modal validation-credit-modal" role="dialog" aria-modal="true" aria-labelledby="validation-credit-form-title">
       <div className="modal-heading"><div><p className="eyebrow">REGISTRO DE CARTERA</p><h2 id="validation-credit-form-title">Crédito o abono</h2><p>Flujo basado en frmRegistroCredito del Excel.</p></div><button className="close-button" type="button" onClick={() => setShowMovementForm(false)} aria-label="Cerrar" disabled={isSavingMovement}>×</button></div>
       <form onSubmit={(event) => void saveValidationMovement(event)}>
@@ -1215,6 +1278,18 @@ async function readHiddenClientRecords(client: NonNullable<typeof supabase>) {
     const result = await client.from(hiddenClientTable).select('*').order('client_identity', { ascending: true }).range(offset, offset + pageSize - 1)
     if (result.error) return { data: records, error: result.error }
     const page = (result.data ?? []) as HiddenClientRecord[]
+    records.push(...page)
+    if (page.length < pageSize) return { data: records, error: null }
+  }
+}
+
+async function readAllDeletedValidationHistoryRecords(client: NonNullable<typeof supabase>) {
+  const pageSize = 1000
+  const records: DeletedValidationHistoryRecord[] = []
+  for (let offset = 0; ; offset += pageSize) {
+    const result = await client.from(deletedValidationHistoryTable).select('*').order('client_identity', { ascending: true }).range(offset, offset + pageSize - 1)
+    if (result.error) return { data: records, error: result.error }
+    const page = (result.data ?? []) as DeletedValidationHistoryRecord[]
     records.push(...page)
     if (page.length < pageSize) return { data: records, error: null }
   }
@@ -1426,7 +1501,7 @@ function SummaryCard({ label, value, note, tone }: { label: string; value: strin
   return <article className="summary-card"><div className="summary-top"><span>{label}</span><span className={'summary-icon ' + tone}>*</span></div><strong>{value}</strong><small>{note}</small></article>
 }
 
-function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onPhysicalCount, onDelete, onDeleteClient, deletingRecord, hiddenClientRecordsError, onNotice, physicalCountsError }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onPhysicalCount: () => void; onDelete: (module: ModuleKey, row: WorkbookRow) => void; onDeleteClient: (row: WorkbookRow) => void; deletingRecord: string | null; hiddenClientRecordsError: string; onNotice: (message: string) => void; physicalCountsError: string }) {
+function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onPhysicalCount, onDelete, onDeleteClient, deletingRecord, hiddenClientRecordsError, deletedHistoryRecords, onNotice, physicalCountsError }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onPhysicalCount: () => void; onDelete: (module: ModuleKey, row: WorkbookRow, adjustStock?: boolean) => void; onDeleteClient: (row: WorkbookRow) => void; deletingRecord: string | null; hiddenClientRecordsError: string; deletedHistoryRecords: DeletedValidationHistoryRecord[]; onNotice: (message: string) => void; physicalCountsError: string }) {
   const columns = useMemo(() => moduleColumns[module].filter((column) => column.key !== 'Columna1' && !(module === 'CREDITOS' && column.key === 'DETALLE') && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO_AL_POR_MAYOR', 'COSTO MO', 'CONSIGNACION'].includes(normalizeExpenseText(column.key).toUpperCase()))), [module])
   const displayRows = useMemo(() => module === 'CLIENTES'
     ? [...rows].sort((a, b) => compareClientNames(a.NOMBRE, b.NOMBRE))
@@ -1446,13 +1521,13 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
       const asOf = Date.parse(String(client.saldo_base_fecha ?? ''))
       if (key && client.saldo_base !== null && client.saldo_base !== undefined && client.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)) snapshots.set(key, { balance, asOf, movementCutoff: asOf })
     })
-    validationCreditPortfolio.forEach((person) => snapshots.set(getValidationClientIdentity(person.sheet), {
+    mergeValidationCreditMovements([], [], new Set(deletedHistoryRecords.map((record) => record.transaction_key))).forEach((person) => snapshots.set(getValidationClientIdentity(person.sheet), {
       balance: person.saldoPendiente,
       asOf: validationCreditSourceAsOf,
       movementCutoff: importedCreditHistoryCutoff,
     }))
     return snapshots
-  }, [data.CLIENTES])
+  }, [data.CLIENTES, deletedHistoryRecords])
   const clientTransactions = useMemo(() => {
     const transactions = new Map<string, WorkbookRow[]>()
     const workbookDuplicateCreditIds = getWorkbookDuplicateCreditIds(data.CREDITOS)
@@ -1516,6 +1591,20 @@ function CreditStockDeleteModal({ row, busy, onClose, onConfirm }: { row: Workbo
       <div className="modal-heading"><div><p className="eyebrow">ELIMINAR CRÉDITO</p><h2 id="credit-stock-delete-title">¿Qué hacemos con el stock?</h2><p>{String(row.NOMBRE ?? '')} · {String(row.CODIGO ?? '')} · {movement ? movement.toLocaleDateString('es-CO') : 'Sin fecha'}</p></div><button className="close-button" type="button" onClick={onClose} disabled={busy} aria-label="Cancelar">×</button></div>
       <p className="form-hint">Al eliminar, el saldo del cliente se recalcula y se refleja en CLIENTES. {currentMonth ? 'El movimiento es de este mes.' : 'El movimiento es de un mes anterior.'} Elige si también debe cambiar el inventario.</p>
       <div className="modal-actions stock-delete-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={busy}>Cancelar</button><button className="secondary-button" type="button" onClick={() => onConfirm(false)} disabled={busy}>Eliminar sin ajustar stock</button><button className="delete-button" type="button" onClick={() => onConfirm(true)} disabled={busy}>{adjustLabel}</button></div>
+    </section>
+  </div>
+}
+
+function ValidationHistoryDeleteModal({ person, row, personBalance, busy, onClose, onConfirm }: { person: string; row: ValidationCreditTransaction; personBalance: number; busy: boolean; onClose: () => void; onConfirm: (adjustStock: boolean) => void }) {
+  const canAdjustStock = row.tipo === 'COMPRA' && Number(row.cantidad) > 0 && Boolean(row.codigo?.trim())
+  const movementValue = row.tipo === 'ABONO' ? row.abona : row.total || row.valor
+  const adjustedBalance = personBalance + (row.tipo === 'ABONO' ? row.abona : -movementValue)
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose() }}>
+    <section className="modal stock-delete-modal" role="dialog" aria-modal="true" aria-labelledby="validation-history-delete-title">
+      <div className="modal-heading"><div><p className="eyebrow">VALIDACION CREDITOS</p><h2 id="validation-history-delete-title">Eliminar registro histórico</h2><p>{person} · {row.fecha ?? 'Sin fecha'} · {row.detalle ?? row.tipo}</p></div><button className="close-button" type="button" onClick={onClose} disabled={busy} aria-label="Cancelar">×</button></div>
+      <p className="form-hint">Saldo actual: {currency.format(personBalance)}. Saldo después de eliminar: {currency.format(adjustedBalance)}. El saldo se recalculará y se reflejará en la ficha del cliente.</p>
+      {canAdjustStock ? <p className="form-hint">Este registro tiene código {row.codigo} y {number.format(row.cantidad)} unidades. Elige si quieres reponerlas al inventario.</p> : <p className="form-hint">Este registro no tiene código y cantidad válidos para ajustar inventario; al eliminarlo, el stock no cambiará.</p>}
+      <div className="modal-actions stock-delete-actions"><button className="secondary-button" type="button" onClick={onClose} disabled={busy}>Cancelar</button><button className="secondary-button" type="button" onClick={() => onConfirm(false)} disabled={busy}>Eliminar sin aumentar stock</button>{canAdjustStock && <button className="delete-button" type="button" onClick={() => onConfirm(true)} disabled={busy}>Eliminar y reponer {number.format(row.cantidad)} unidades</button>}</div>
     </section>
   </div>
 }
@@ -1878,7 +1967,7 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
 
 function BalanceSection({ title, rows }: { title: string; rows: Array<[string, number, string?]> }) { return <section className="balance-section"><h3>{title}</h3>{rows.map(([label, amount, tone]) => <div key={label} className={`balance-row ${tone ? `balance-${tone}` : ''}`}><span>{label}</span><strong>{currency.format(amount)}</strong></div>)}</section> }
 
-function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hiddenClientRecords, onClose, onSave }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; physicalCounts: PhysicalInventoryCount[]; periodPolicy: PeriodPolicy; hiddenClientRecords: HiddenClientRecord[]; onClose: () => void; onSave: (row: WorkbookRow) => Promise<void> | void }) {
+function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hiddenClientRecords, deletedHistoryRecords, onClose, onSave }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; physicalCounts: PhysicalInventoryCount[]; periodPolicy: PeriodPolicy; hiddenClientRecords: HiddenClientRecord[]; deletedHistoryRecords: DeletedValidationHistoryRecord[]; onClose: () => void; onSave: (row: WorkbookRow) => Promise<void> | void }) {
   const isCreditForm = module === 'CREDITOS'
   const data = useMemo(() => ({ ...sourceData, INVENTARIO_PT: getRows('INVENTARIO_PT', sourceData, physicalCounts) }), [sourceData, physicalCounts])
   const columns = useMemo(() => moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'CONTEO_FISICO', 'CONTEO FISICO', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'VALOR_PRODUCTO', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS')), [module])
@@ -1901,7 +1990,8 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
   const isReduction = isCreditForm && (isAbono || isReturn)
   const formColumns = useMemo(() => isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(column.key === 'DETALLE' && !isAbono) && !(isReturn && column.key === 'VALOR') && !(column.key === 'VALOR' && !isAbono) && !(column.key === 'MEDIO PAGO' && !isAbono && !isReturn)) : columns, [columns, isAbono, isCreditForm, isReturn])
   const selectedClient = String(values.NOMBRE ?? '').trim()
-  const currentDebt = useMemo(() => isCreditForm ? getClientDebt(data.CREDITOS, selectedClient, data.CLIENTES) : 0, [data.CLIENTES, data.CREDITOS, isCreditForm, selectedClient])
+  const deletedHistoryKeys = useMemo(() => new Set(deletedHistoryRecords.map((record) => record.transaction_key)), [deletedHistoryRecords])
+  const currentDebt = useMemo(() => isCreditForm ? getClientDebt(data.CREDITOS, selectedClient, data.CLIENTES, deletedHistoryKeys) : 0, [data.CLIENTES, data.CREDITOS, deletedHistoryKeys, isCreditForm, selectedClient])
   const returnValue = Math.max(0, calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO))
   const quantityKey = module === 'ENTRADAS' ? 'CANTIDAD' : 'CANT'
   const lineQuantity = Number(values[quantityKey] ?? 0)
@@ -2133,7 +2223,7 @@ function PhysicalInventoryCountModal({ data, counts, setupError, onClose, onSave
   </div>
 }
 
-function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow[]>, physicalCounts: PhysicalInventoryCount[] = []): WorkbookRow[] {
+function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow[]>, physicalCounts: PhysicalInventoryCount[] = [], deletedHistoryKeys: ReadonlySet<string> = new Set()): WorkbookRow[] {
   void physicalCounts
   if (module === 'MENU') return []
   if (module === 'INVENTARIO_PT') {
@@ -2165,7 +2255,7 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
       const asOf = Date.parse(String(row.saldo_base_fecha ?? ''))
       if (identity && row.saldo_base !== null && row.saldo_base !== undefined && row.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)) snapshots.set(identity, { balance, asOf, movementCutoff: asOf })
     })
-    validationCreditPortfolio.forEach((person) => snapshots.set(getValidationClientIdentity(person.sheet), {
+    mergeValidationCreditMovements([], [], deletedHistoryKeys).forEach((person) => snapshots.set(getValidationClientIdentity(person.sheet), {
       balance: person.saldoPendiente,
       asOf: validationCreditSourceAsOf,
       movementCutoff: importedCreditHistoryCutoff,
@@ -2331,9 +2421,9 @@ function getValidationClientSheet(value: unknown): string | undefined {
 function getValidationClientIdentity(value: unknown): string {
   return normalizeClientName(getValidationClientSheet(value) ?? value)
 }
-function getClientBalanceSnapshot(clients: WorkbookRow[], clientName: string): { balance: number; asOf: number; movementCutoff: number } | null {
+function getClientBalanceSnapshot(clients: WorkbookRow[], clientName: string, deletedHistoryKeys: ReadonlySet<string> = new Set()): { balance: number; asOf: number; movementCutoff: number } | null {
   const key = getValidationClientIdentity(clientName)
-  const validationPerson = validationCreditPortfolio.find((person) => getValidationClientIdentity(person.sheet) === key)
+  const validationPerson = mergeValidationCreditMovements([], [], deletedHistoryKeys).find((person) => getValidationClientIdentity(person.sheet) === key)
   if (validationPerson) return {
     balance: validationPerson.saldoPendiente,
     asOf: validationCreditSourceAsOf,
@@ -2387,10 +2477,10 @@ function getWorkbookDuplicateCreditIds(rows: WorkbookRow[]): Set<string> {
     })
   return duplicateIds
 }
-function getClientDebt(rows: WorkbookRow[], clientName: string, clients: WorkbookRow[] = []): number {
+function getClientDebt(rows: WorkbookRow[], clientName: string, clients: WorkbookRow[] = [], deletedHistoryKeys: ReadonlySet<string> = new Set()): number {
   if (!clientName) return 0
   const key = getValidationClientIdentity(clientName)
-  const snapshot = getClientBalanceSnapshot(clients, clientName)
+  const snapshot = getClientBalanceSnapshot(clients, clientName, deletedHistoryKeys)
   const workbookDuplicateCreditIds = getWorkbookDuplicateCreditIds(rows)
   return rows.filter((row) => getValidationClientIdentity(row.NOMBRE) === key
       && (!snapshot || rowCreatedAtValue(row) > snapshot.movementCutoff)
