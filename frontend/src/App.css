@@ -220,6 +220,17 @@
 .connection[data-state="offline"] i { background: #c94b43; }
 .connection[data-state="checking"] i { background: #d39a2c; }
 @media (max-width: 760px) {
+  .validation-credit-people-table { display: block; }
+  .validation-credit-people-table thead { display: none; }
+  .validation-credit-people-table tbody { display: grid; gap: 8px; padding: 0 10px 12px; }
+  .validation-credit-people-table tbody .validation-credit-person-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; padding: 5px; border: 1px solid #e5ece6; border-radius: 8px; background: #fff; }
+  .validation-credit-people-table tbody .validation-credit-person-row td { display: grid; min-width: 0; height: auto; align-content: start; gap: 4px; padding: 7px; border: 0; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+  .validation-credit-people-table tbody .validation-credit-person-row td::before { color: #788980; content: attr(data-label); font-size: 9px; font-weight: 750; letter-spacing: .3px; text-transform: uppercase; }
+  .validation-credit-people-table tbody .validation-credit-person-row td:first-child, .validation-credit-people-table tbody .validation-credit-person-row td[data-label="Acciones"] { grid-column: 1 / -1; }
+  .validation-credit-people-table tbody .validation-credit-person-row td:first-child { padding-left: 7px; color: #284c36; font-weight: 750; }
+  .validation-credit-people-table tbody .validation-credit-person-row td[data-label="Acciones"] { justify-content: flex-end; border-top: 1px solid #edf1ed; }
+  .validation-credit-people-table tbody .validation-credit-person-details-row { display: block; min-width: 0; }
+  .validation-credit-people-table tbody .validation-credit-person-details-cell { display: block; padding: 12px 8px !important; }
   .topbar { gap: 8px; padding: 0 12px; }
   .breadcrumb { min-width: 0; gap: 6px; }
   .topbar-right { min-width: 0; gap: 9px; }
@@ -230,20 +241,33 @@
 .validation-credit-loading { border-color: #e6ece7; color: #748278; background: #fff; }
 .validation-credit-person-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .validation-credit-person-details-cell { padding: 16px 18px !important; background: #f7faf8; }
-.validation-credit-person-details { display: grid; width: calc(100vw - 66px); max-width: 100%; min-width: 0; box-sizing: border-box; gap: 12px; }
-@media (min-width: 761px) { .validation-credit-person-details { width: calc(100vw - 372px); } }
+.validation-credit-person-details { display: grid; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; gap: 12px; }
+.validation-credit-people-table { width: 100%; min-width: 0; table-layout: fixed; }
+.validation-credit-people-table th, .validation-credit-people-table td { padding-right: 8px; padding-left: 8px; white-space: normal; overflow-wrap: anywhere; }
+.validation-credit-people-table th:first-child, .validation-credit-people-table td:first-child { padding-left: 12px; }
+.validation-credit-people-table th:nth-child(1) { width: 22%; }
+.validation-credit-people-table th:nth-child(2), .validation-credit-people-table th:nth-child(3), .validation-credit-people-table th:nth-child(4) { width: 12%; }
+.validation-credit-people-table th:nth-child(5) { width: 16%; }
+.validation-credit-people-table th:nth-child(6) { width: 10%; }
+.validation-credit-people-table th:nth-child(7) { width: 16%; }
+.validation-credit-people-table td { font-size: 12px; }
 .validation-credit-heading-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 9px; }
 .validation-credit-heading-actions > button { white-space: nowrap; }
 .validation-credit-history-modal { width: min(100%, 560px); }
 .validation-credit-history-person { display: grid; gap: 7px; color: #58675e; font-size: 11px; font-weight: 700; }
 .validation-credit-history-person select { width: 100%; height: 42px; padding: 0 10px; border: 1px solid #dfe7df; border-radius: 6px; color: #34463a; background: #fff; font: inherit; font-size: 12px; }
 .validation-credit-actions-hint { margin: -4px 0 0; color: #718077; font-size: 11px; line-height: 1.5; }
-.validation-credit-history-wrap { max-height: none; max-width: calc(100vw - 66px); }
-@media (min-width: 761px) { .validation-credit-history-wrap { max-width: calc(100vw - 372px); } }
-.validation-credit-history-table { min-width: 1030px; }
-.validation-credit-history-table-no-actions { min-width: 910px; }
-.validation-credit-history-table:not(.validation-credit-history-table-no-actions) th:last-child, .validation-credit-history-table:not(.validation-credit-history-table-no-actions) td:last-child { position: sticky; right: 0; z-index: 1; background: #fff; box-shadow: -5px 0 8px #1a34200d; }
-.validation-credit-history-table:not(.validation-credit-history-table-no-actions) thead th:last-child { z-index: 2; background: #f8faf8; }
+.validation-credit-history-wrap { width: 100%; max-height: none; max-width: 100%; overflow: visible; }
+.validation-credit-history-table, .validation-credit-history-table-no-actions { width: 100%; min-width: 0; table-layout: fixed; }
+.validation-credit-history-table thead { display: none; }
+.validation-credit-history-table tbody { display: grid; gap: 8px; }
+.validation-credit-history-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; overflow: hidden; border: 1px solid #e5ece6; border-radius: 8px; background: #fff; }
+.validation-credit-history-table tbody td { display: grid; min-width: 0; height: auto; grid-template-columns: minmax(0, 1fr); align-content: start; gap: 4px; padding: 9px 10px; border-top: 0; color: #3f5046; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+.validation-credit-history-table tbody td::before { color: #788980; content: attr(data-label); font-size: 9px; font-weight: 750; letter-spacing: .3px; text-transform: uppercase; }
+.validation-credit-history-table tbody td:first-child { padding-left: 10px; }
+.validation-credit-history-table tbody .validation-credit-history-detail, .validation-credit-history-table tbody .validation-credit-actions-cell { grid-column: 1 / -1; }
+.validation-credit-history-table tbody .validation-credit-history-detail { color: #284c36; font-weight: 700; }
+.validation-credit-history-table tbody .validation-credit-actions-cell { justify-content: flex-end; border-top: 1px solid #edf1ed; }
 .validation-credit-row-actions { display: flex; align-items: center; gap: 7px; }
 .validation-credit-row-actions .small-action { min-height: 32px; padding: 0 11px; color: #2e6946; font-size: 11px; }
 .validation-credit-row-actions .delete-button { min-height: 32px; }
