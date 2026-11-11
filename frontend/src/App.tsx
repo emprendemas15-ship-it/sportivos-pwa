@@ -2154,7 +2154,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
   const isAbono = isAbonoType(values.TIPO)
   const isReturn = isCreditForm && isReturnType(values.TIPO)
   const isReduction = isCreditForm && (isAbono || isReturn)
-  const formColumns = useMemo(() => isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(column.key === 'DETALLE' && !isAbono) && !(isReturn && column.key === 'VALOR') && !(column.key === 'VALOR' && !isAbono) && !(column.key === 'MEDIO PAGO' && !isAbono && !isReturn)) : columns, [columns, isAbono, isCreditForm, isReturn])
+  const formColumns = useMemo(() => isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(column.key === 'DETALLE' && !isAbono) && !(isReturn && column.key === 'VALOR') && !(column.key === 'VALOR' && !isAbono) && !(column.key === 'MEDIO PAGO' && !isAbono)) : columns, [columns, isAbono, isCreditForm, isReturn])
   const selectedClient = String(values.NOMBRE ?? '').trim()
   const deletedHistoryKeys = useMemo(() => new Set(deletedHistoryRecords.map((record) => record.transaction_key)), [deletedHistoryRecords])
   const currentDebt = useMemo(() => isCreditForm ? getClientDebt(data, selectedClient, deletedHistoryKeys) : 0, [data, deletedHistoryKeys, isCreditForm, selectedClient])
@@ -2245,7 +2245,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
   function isRequired(column: { key: string; required?: boolean }) {
     if (!isCreditForm) return Boolean(column.required)
     if (['TIPO', 'FECHA', 'NOMBRE'].includes(column.key)) return true
-    if (column.key === 'MEDIO PAGO') return isAbono || (isReturn && refundValue > 0)
+    if (column.key === 'MEDIO PAGO') return isAbono
     if (column.key === 'VALOR') return isAbono
     if (column.key === 'PRECIO') return isReturn || !isReduction
     if (isReturn) return ['CODIGO', 'CANT'].includes(column.key)
@@ -2288,10 +2288,9 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
       const option = returnOptions.find((item) => normalizeCode(item.code) === normalizeCode(values.CODIGO))
       if (!option) { setError('Este cliente no tiene compras pendientes de devolución para ese código.'); return }
       if (Number(values.CANT ?? 0) > option.available) { setError(`Solo se pueden devolver ${option.available} unidad(es) de este código.`); return }
-      if (refundValue > 0 && !String(values['MEDIO PAGO'] ?? '').trim()) { setError('Selecciona el medio para registrar el reembolso que entregarás al cliente.'); return }
       const value = returnValue
       const note = `Devolución ${String(values.CODIGO)} | DEVUELTO:${value} | REEMBOLSO:${refundValue}`
-      const row = { ...values, VALOR: returnDebtPart, COMENTARIO: note, 'MEDIO PAGO': refundValue > 0 ? String(values['MEDIO PAGO'] || 'Efectivo') : String(values['MEDIO PAGO'] ?? '') }
+      const row = { ...values, VALOR: returnDebtPart, COMENTARIO: note, 'MEDIO PAGO': '' }
       void onSave(row); return
     }
     void onSave(values)
