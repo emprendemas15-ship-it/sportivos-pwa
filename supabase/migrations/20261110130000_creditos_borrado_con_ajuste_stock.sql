@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS public.inventario_pt_stock_config (
   id boolean PRIMARY KEY DEFAULT true CHECK (id),
   initialized_at timestamptz NOT NULL
 );
+ALTER TABLE public.inventario_pt_stock_config ENABLE ROW LEVEL SECURITY;
 INSERT INTO public.inventario_pt_stock_config (id, initialized_at)
 VALUES (true, now())
 ON CONFLICT (id) DO NOTHING;
