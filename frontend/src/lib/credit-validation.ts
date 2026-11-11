@@ -2,6 +2,7 @@ import validationCreditDataRaw from '../data/validacion-creditos.json'
 
 export type ValidationCreditTransaction = {
   savedMovementId?: string
+  sourceCreditId?: string
   sourceTransactionKey?: string
   fecha: string | null
   codigo: string | null
@@ -15,7 +16,7 @@ export type ValidationCreditTransaction = {
   debe: number
   tieneDebe: boolean
   negocio: string | null
-  tipo: 'COMPRA' | 'ABONO'
+  tipo: 'COMPRA' | 'ABONO' | 'DEVOLUCION'
 }
 
 export type ValidationCreditPerson = {
@@ -54,7 +55,7 @@ export type SavedValidationCreditMovement = {
   id: string
   request_id: string
   person_sheet: string
-  movement_type: 'CREDITO' | 'ABONO'
+  movement_type: 'CREDITO' | 'ABONO' | 'DEVOLUCION'
   movement_date: string
   code: string | null
   detail: string | null
@@ -133,13 +134,19 @@ export function mergeValidationCreditMovements(
     const sourceKeys = getValidationCreditTransactionKeys(sourcePerson.sheet, sourcePerson.transactions)
     const sourceTransactions = sourcePerson.transactions
       .filter((_, index) => !deletedTransactions.has(sourceKeys[index]))
-    const sourceDelta = sourcePerson.transactions.reduce((total, transaction) => total + (transaction.tipo === 'ABONO' ? -transaction.abona : transaction.total || transaction.valor), 0)
+    const sourceDelta = sourcePerson.transactions.reduce((total, transaction) => total + (
+      transaction.tipo === 'ABONO' ? -transaction.abona
+        : transaction.tipo === 'DEVOLUCION' ? -transaction.total
+          : transaction.total || transaction.valor
+    ), 0)
     const openingBalance = sourcePerson.saldoPendiente - sourceDelta
     let sourceBalance = openingBalance
     const recalculatedSourceTransactions = sourcePerson.transactions.map((transaction, index) => ({ transaction, key: sourceKeys[index] }))
       .filter(({ key }) => !deletedTransactions.has(key))
       .map(({ transaction, key }) => {
-      sourceBalance += transaction.tipo === 'ABONO' ? -transaction.abona : transaction.total || transaction.valor
+      sourceBalance += transaction.tipo === 'ABONO' ? -transaction.abona
+        : transaction.tipo === 'DEVOLUCION' ? -transaction.total
+          : transaction.total || transaction.valor
       return { ...transaction, sourceTransactionKey: key, debe: sourceBalance, tieneDebe: true }
     })
     const person: ValidationCreditPerson = {
@@ -159,24 +166,28 @@ export function mergeValidationCreditMovements(
     })
     const additions = (grouped.get(normalizeClientIdentity(person.sheet)) ?? [])
       .slice()
-      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .sort((a, b) => a.movement_date.localeCompare(b.movement_date) || a.created_at.localeCompare(b.created_at))
       .filter((movement) => {
         const key = savedMovementKey(movement)
         const matchedBaselineRows = baselineTransactionCounts.get(key) ?? 0
-        if (!matchedBaselineRows) return true
-        baselineTransactionCounts.set(key, matchedBaselineRows - 1)
-        return false
+        if (matchedBaselineRows) {
+          baselineTransactionCounts.set(key, matchedBaselineRows - 1)
+          return false
+        }
+        return true
       })
     const recordedBalance = [...person.transactions].reverse().find((transaction) => transaction.tieneDebe)?.debe
     let runningBalance = recordedBalance ?? person.saldoPendiente
     const addedPurchases = additions.filter((movement) => movement.movement_type === 'CREDITO').reduce((total, movement) => total + movement.total, 0)
     const addedPayments = additions.filter((movement) => movement.movement_type === 'ABONO').reduce((total, movement) => total + movement.payment_amount, 0)
-    const addedDiscounts = additions.reduce((total, movement) => total + movement.discount, 0)
+    const addedDiscounts = additions.filter((movement) => movement.movement_type === 'CREDITO')
+      .reduce((total, movement) => total + movement.discount, 0)
     const addedTransactions: ValidationCreditTransaction[] = additions.map((movement) => {
       const isPayment = movement.movement_type === 'ABONO'
-      runningBalance += isPayment ? -movement.payment_amount : movement.total
+      const isReturn = movement.movement_type === 'DEVOLUCION'
+      runningBalance += isPayment ? -movement.payment_amount : isReturn ? -movement.total : movement.total
       return {
-        savedMovementId: movement.id,
+        ...(movement.id.startsWith('credit:') ? { sourceCreditId: movement.id.slice('credit:'.length) } : { savedMovementId: movement.id }),
         fecha: movement.movement_date,
         codigo: movement.code,
         detalle: movement.detail,
@@ -188,7 +199,7 @@ export function mergeValidationCreditMovements(
         debe: runningBalance,
         tieneDebe: true,
         negocio: movement.business,
-        tipo: isPayment ? 'ABONO' : 'COMPRA',
+        tipo: isPayment ? 'ABONO' : isReturn ? 'DEVOLUCION' : 'COMPRA',
       }
     })
     const latestAddition = additions.reduce<string | null>((latest, movement) => {

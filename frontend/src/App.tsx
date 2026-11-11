@@ -83,7 +83,6 @@ validationCreditClientAliases.forEach(([alias, canonical]) => {
 // The original CREDITOS import completed on Nov 4. New spreadsheet balances replace it;
 // only later live rows absent from that spreadsheet are added to each client balance.
 const importedCreditHistoryCutoff = Date.parse('2026-11-05T00:00:00.000Z')
-const validationCreditOpeningBalances = new Map(validationCreditPortfolio.map((person) => [normalizeClientName(person.sheet), person.saldoPendiente]))
 const localDateInputValue = () => {
   const date = new Date()
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -232,7 +231,7 @@ function App() {
   const rows = useMemo(() => {
     let currentRows = getRows(active, data, physicalCounts, deletedHistoryKeys)
     if (active === 'CLIENTES') {
-      const hidden = new Set(hiddenClientRecords.filter((record) => record.hidden_from_clients).map((record) => record.client_identity))
+      const hidden = new Set(hiddenClientRecords.filter((record) => record.hidden_from_clients || record.hidden_from_validation).map((record) => record.client_identity))
       currentRows = currentRows.filter((row) => !hidden.has(normalizeClientName(row.NOMBRE)))
       return currentRows.sort((a, b) => compareClientNames(a.NOMBRE, b.NOMBRE))
     }
@@ -278,7 +277,7 @@ function App() {
       flashNotice('No se guardó: espera a que aparezca la conexión con la base compartida.')
       return
     }
-    const normalized = normalizeRow(active, row, data)
+    const normalized = normalizeRow(active, row, data, deletedHistoryKeys)
     if (datedOperationalModules.has(active)) {
       const dateError = validateOperationalDate(normalized.FECHA, periodPolicy)
       if (dateError) {
@@ -433,10 +432,11 @@ function App() {
     if (!window.confirm(`¿Eliminar ${name} de CLIENTES?\n\nSe ocultará de la lista de clientes y de los formularios. Sus movimientos en CREDITOS se conservarán.`)) return
     const recordKey = `CLIENTES:${row.id ?? normalizeClientName(name)}`
     if (deletingRecord) return
+    const previousFlags = hiddenClientRecords.find((record) => record.client_identity === normalizeClientName(name))
     setDeletingRecord(recordKey)
     let hiddenSaved = false
     try {
-      await saveHiddenClientFlags(name, { hidden_from_clients: true })
+      await saveHiddenClientFlags(name, { hidden_from_clients: true, hidden_from_validation: true })
       hiddenSaved = true
       if (row.id !== null && row.id !== undefined && row.id !== '') {
         const result = await supabase.from('clientes').delete().eq('id', row.id).select('id')
@@ -448,8 +448,18 @@ function App() {
       await refreshAll(true)
       flashNotice(`Cliente ${name} eliminado de la lista.`)
     } catch (error) {
-      if (hiddenSaved) await saveHiddenClientFlags(name, { hidden_from_clients: false }).catch(() => undefined)
-      const message = error instanceof Error ? error.message : 'Error desconocido.'
+      let rollbackMessage = ''
+      if (hiddenSaved) {
+        try {
+          await saveHiddenClientFlags(name, {
+            hidden_from_clients: previousFlags?.hidden_from_clients ?? false,
+            hidden_from_validation: previousFlags?.hidden_from_validation ?? false,
+          })
+        } catch (rollbackError) {
+          rollbackMessage = ' Tampoco se pudieron restaurar los filtros anteriores: ' + (rollbackError instanceof Error ? rollbackError.message : 'error desconocido.')
+        }
+      }
+      const message = (error instanceof Error ? error.message : 'Error desconocido.') + rollbackMessage
       markWriteFailure('No se pudo eliminar el cliente. ' + message)
       flashNotice('No se pudo eliminar el cliente. Ejecuta la migración de eliminaciones si la tabla no existe. ' + message)
     } finally {
@@ -459,15 +469,27 @@ function App() {
 
   async function deleteValidationPerson(person: ValidationCreditPerson) {
     if (!supabase || syncState !== 'synced') throw new Error('Espera a que conecte con la base compartida.')
-    await saveHiddenClientFlags(person.sheet, { hidden_from_validation: true })
+    const previousFlags = hiddenClientRecords.find((record) => record.client_identity === normalizeClientName(person.sheet))
+    let hiddenSaved = false
     try {
+      await saveHiddenClientFlags(person.sheet, { hidden_from_clients: true, hidden_from_validation: true })
+      hiddenSaved = true
       const result = await supabase.from(validationCreditTable).delete().eq('person_sheet', person.sheet).select('id')
       if (result.error) throw new Error(result.error.message)
       await refreshHiddenClientRecords()
       markWriteSuccess()
       flashNotice(`Se eliminó ${person.sheet} de VALIDACION CREDITOS.`)
     } catch (error) {
-      await saveHiddenClientFlags(person.sheet, { hidden_from_validation: false }).catch(() => undefined)
+      if (hiddenSaved) {
+        try {
+          await saveHiddenClientFlags(person.sheet, {
+            hidden_from_clients: previousFlags?.hidden_from_clients ?? false,
+            hidden_from_validation: previousFlags?.hidden_from_validation ?? false,
+          })
+        } catch (rollbackError) {
+          throw new Error((error instanceof Error ? error.message : 'Error desconocido.') + ' No se pudieron restaurar los filtros anteriores: ' + (rollbackError instanceof Error ? rollbackError.message : 'error desconocido.'))
+        }
+      }
       throw error
     }
   }
@@ -500,7 +522,7 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} physicalCounts={physicalCounts} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} hiddenClientRecordsError={hiddenClientRecordsError} deletedHistoryRecords={deletedHistoryRecords} deletedHistoryError={deletedHistoryError} onDeletedHistoryRecord={(record) => setDeletedHistoryRecords((current) => current.some((item) => item.client_identity === record.client_identity && item.transaction_key === record.transaction_key) ? current : [...current, record])} onDeletePerson={deleteValidationPerson} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onPhysicalCount={() => setShowPhysicalCount(true)} onDelete={deleteRow} onDeleteClient={deleteClient} deletingRecord={deletingRecord} hiddenClientRecordsError={hiddenClientRecordsError} deletedHistoryRecords={deletedHistoryRecords} onNotice={flashNotice} physicalCountsError={physicalCountsError} />}
+      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} physicalCounts={physicalCounts} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} hiddenClientRecordsError={hiddenClientRecordsError} deletedHistoryRecords={deletedHistoryRecords} deletedHistoryError={deletedHistoryError} onDeletedHistoryRecord={(record) => setDeletedHistoryRecords((current) => current.some((item) => item.client_identity === record.client_identity && item.transaction_key === record.transaction_key) ? current : [...current, record])} onDeletePerson={deleteValidationPerson} onDeleteCredit={(id) => { const row = data.CREDITOS.find((item) => String(item.id ?? '') === id); if (row) void deleteRow('CREDITOS', row) }} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onPhysicalCount={() => setShowPhysicalCount(true)} onDelete={deleteRow} onDeleteClient={deleteClient} deletingRecord={deletingRecord} hiddenClientRecordsError={hiddenClientRecordsError} deletedHistoryRecords={deletedHistoryRecords} onNotice={flashNotice} physicalCountsError={physicalCountsError} />}
     </main>
     {showForm && active !== 'MENU' && <RecordForm module={active} data={data} physicalCounts={physicalCounts} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} deletedHistoryRecords={deletedHistoryRecords} onClose={() => setShowForm(false)} onSave={saveRow} />}
     {showPhysicalCount && <PhysicalInventoryCountModal data={data} counts={physicalCounts} setupError="" onClose={() => setShowPhysicalCount(false)} onSave={savePhysicalCounts} />}
@@ -594,12 +616,14 @@ function useWorkbookSync() {
     window.addEventListener('focus', refreshWhenActive)
     window.addEventListener('offline', handleOffline)
     window.addEventListener('online', handleOnline)
+    window.addEventListener('sportivos:refresh', refreshWhenActive)
     document.addEventListener('visibilitychange', refreshWhenActive)
     return () => {
       window.clearInterval(timer)
       window.removeEventListener('focus', refreshWhenActive)
       window.removeEventListener('offline', handleOffline)
       window.removeEventListener('online', handleOnline)
+      window.removeEventListener('sportivos:refresh', refreshWhenActive)
       document.removeEventListener('visibilitychange', refreshWhenActive)
     }
   }, [refreshAll])
@@ -683,7 +707,8 @@ async function readRemoteData(): Promise<RemoteSnapshot> {
       if (page.length < pageSize) return rows
     }
   }
-  const entries = await Promise.all((Object.keys(remoteTableByModule) as ModuleKey[]).map(async (module) => {
+  const [entries, validationRows] = await Promise.all([
+    Promise.all((Object.keys(remoteTableByModule) as ModuleKey[]).map(async (module) => {
     const table = remoteTableByModule[module]
     if (!table) return [module, []] as const
     try {
@@ -692,7 +717,10 @@ async function readRemoteData(): Promise<RemoteSnapshot> {
     } catch (error) {
       throw new Error(module + ': ' + (error instanceof Error ? error.message : String(error)))
     }
-  }))
+    })),
+    readTable(validationCreditTable),
+  ])
+  entries.push(['VALIDACION_CREDITOS', validationRows] as const)
   return {
     data: { ...emptyWorkbookData(), ...Object.fromEntries(entries) } as Record<ModuleKey, WorkbookRow[]>,
     physicalCounts: [],
@@ -731,7 +759,7 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   return next
 }
 
-function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenClientRecordsError, deletedHistoryRecords, deletedHistoryError, onDeletedHistoryRecord, onDeletePerson }: { data: Record<ModuleKey, WorkbookRow[]>; periodPolicy: PeriodPolicy; hiddenClientRecords: HiddenClientRecord[]; hiddenClientRecordsError: string; deletedHistoryRecords: DeletedValidationHistoryRecord[]; deletedHistoryError: string; onDeletedHistoryRecord: (record: DeletedValidationHistoryRecord) => void; onDeletePerson: (person: ValidationCreditPerson) => Promise<void> }) {
+function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenClientRecordsError, deletedHistoryRecords, deletedHistoryError, onDeletedHistoryRecord, onDeletePerson, onDeleteCredit }: { data: Record<ModuleKey, WorkbookRow[]>; periodPolicy: PeriodPolicy; hiddenClientRecords: HiddenClientRecord[]; hiddenClientRecordsError: string; deletedHistoryRecords: DeletedValidationHistoryRecord[]; deletedHistoryError: string; onDeletedHistoryRecord: (record: DeletedValidationHistoryRecord) => void; onDeletePerson: (person: ValidationCreditPerson) => Promise<void>; onDeleteCredit: (id: string) => void }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [movements, setMovements] = useState<SavedValidationCreditMovement[]>([])
@@ -767,14 +795,17 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
     businessDetail: '',
   }))
   const baseSummary = useMemo(() => getValidationCreditSummary(), [])
-  const registeredClientNames = useMemo(() => [...data.CLIENTES, ...data.CREDITOS]
-    .map((row) => String(row.NOMBRE ?? '').trim())
-    .filter(Boolean), [data.CLIENTES, data.CREDITOS])
+  const registeredClientNames = useMemo(() => [
+    ...data.CLIENTES.map((row) => String(row.NOMBRE ?? '').trim()),
+    ...data.CREDITOS.map((row) => String(row.NOMBRE ?? '').trim()),
+    ...data.VALIDACION_CREDITOS.map((row) => String(row.person_sheet ?? '').trim()),
+  ]
+    .filter(Boolean), [data.CLIENTES, data.CREDITOS, data.VALIDACION_CREDITOS])
   const deletedHistoryKeys = useMemo(() => new Set(deletedHistoryRecords.map((record) => record.transaction_key)), [deletedHistoryRecords])
-  const allPeople = useMemo(() => mergeValidationCreditMovements(movements, registeredClientNames, deletedHistoryKeys)
-    .filter((person) => !hiddenClientRecords.some((record) => record.hidden_from_validation && record.client_identity === normalizeClientName(person.sheet)))
+  const allPeople = useMemo(() => getClientLedgerPeople(data, movements, deletedHistoryKeys)
+    .filter((person) => !hiddenClientRecords.some((record) => (record.hidden_from_clients || record.hidden_from_validation) && record.client_identity === normalizeClientName(person.sheet)))
     .slice()
-    .sort((a, b) => compareClientNames(a.sheet, b.sheet)), [movements, registeredClientNames, hiddenClientRecords, deletedHistoryKeys])
+    .sort((a, b) => compareClientNames(a.sheet, b.sheet)), [data, movements, hiddenClientRecords, deletedHistoryKeys])
   const summary = useMemo(() => ({
     ...baseSummary,
     totalPersonas: allPeople.length,
@@ -784,8 +815,16 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
     carteraPendiente: allPeople.reduce((sum, person) => sum + Math.max(0, person.saldoPendiente), 0),
     personasConSaldoPendiente: allPeople.filter((person) => person.saldoPendiente > 0).length,
     personasAlDia: allPeople.filter((person) => person.saldoPendiente <= 0).length,
-    registros: baseSummary.registros - deletedHistoryRecords.length + movements.length,
-  }), [allPeople, baseSummary, movements.length, deletedHistoryRecords.length])
+    registros: allPeople.reduce((sum, person) => sum + person.transactions.length, 0),
+  }), [allPeople, baseSummary])
+  const clientBalanceByIdentity = useMemo(() => new Map(
+    getRows('CLIENTES', data, [], deletedHistoryKeys)
+      .map((client) => [getValidationClientIdentity(client.NOMBRE), Number(client.Columna1 ?? 0)] as const),
+  ), [data, deletedHistoryKeys])
+  const balanceMismatches = allPeople.filter((person) => {
+    const clientBalance = clientBalanceByIdentity.get(getValidationClientIdentity(person.sheet))
+    return clientBalance === undefined || Math.abs(clientBalance - person.saldoPendiente) > 0.01
+  })
   const people = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase()
     if (!needle) return allPeople
@@ -817,7 +856,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
         && String(row.CODIGO ?? '').trim())
       .slice()
       .sort((a, b) => rowCreatedAtValue(a) - rowCreatedAtValue(b))
-  }, [data.CREDITOS, selectedPerson?.sheet])
+  }, [data.CREDITOS, selectedPerson])
   const matchingFormPeople = useMemo(() => {
     const needle = personQuery.trim().toLocaleLowerCase('es')
     return allPeople.filter((person) => !needle || `${person.name} ${person.sheet}`.toLocaleLowerCase('es').includes(needle))
@@ -972,6 +1011,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
       if (saved.error) throw new Error(saved.error.message)
       const savedMovement = parseSavedValidationMovement(saved.data)
       setMovements((current) => current.some((movement) => movement.request_id === form.requestId) ? current : [...current, savedMovement])
+      window.dispatchEvent(new CustomEvent('sportivos:refresh'))
       setShowMovementForm(false)
       setMovementNotice(`${form.type === 'CREDITO' ? 'Crédito' : 'Abono'} registrado para ${person.sheet}.`)
     } catch (error) {
@@ -1002,13 +1042,16 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
       deletionConfirmed = true
       const remainingMovements = movements.filter((movement) => movement.id !== row.savedMovementId)
       setMovements(remainingMovements)
-      const localBalance = mergeValidationCreditMovements(remainingMovements, registeredClientNames).find((person) => person.sheet === personSheet)?.saldoPendiente ?? 0
+      window.dispatchEvent(new CustomEvent('sportivos:refresh'))
+      const localBalance = mergeValidationCreditMovements(getClientLedgerMovements(data, remainingMovements), registeredClientNames, deletedHistoryKeys)
+        .find((person) => getValidationClientIdentity(person.sheet) === getValidationClientIdentity(personSheet))?.saldoPendiente ?? 0
       setMovementNotice(`Movimiento eliminado. Saldo actualizado para ${personName}: ${currency.format(localBalance)}.`)
       const refreshed = await readAllValidationMovementRows(supabase)
       if (refreshed.error) throw new Error(refreshed.error.message)
       const currentMovements = (refreshed.data ?? []).map(parseSavedValidationMovement)
       setMovements(currentMovements)
-      const updatedBalance = mergeValidationCreditMovements(currentMovements, registeredClientNames).find((person) => person.sheet === personSheet)?.saldoPendiente ?? 0
+      const updatedBalance = mergeValidationCreditMovements(getClientLedgerMovements(data, currentMovements), registeredClientNames, deletedHistoryKeys)
+        .find((person) => getValidationClientIdentity(person.sheet) === getValidationClientIdentity(personSheet))?.saldoPendiente ?? 0
       setMovementNotice(`Movimiento eliminado. Saldo actualizado para ${personName}: ${currency.format(updatedBalance)}.`)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Error desconocido.'
@@ -1143,6 +1186,9 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
     {movementNotice && <p className="validation-credit-notice" role="status">{movementNotice}</p>}
     {movementActionError && <p className="form-error" role="alert">{movementActionError}</p>}
     {isLoadingMovements && <p className="validation-credit-loading" role="status">Cargando movimientos del módulo...</p>}
+    {balanceMismatches.length
+      ? <p className="sync-warning" role="alert">Hay diferencias de saldo entre CLIENTES y VALIDACION CREDITOS para {balanceMismatches.length} persona(s): {balanceMismatches.slice(0, 5).map((person) => person.sheet).join(', ')}. No se ocultaron ni corrigieron automáticamente.</p>
+      : <p className="validation-credit-notice" role="status">Conciliación de saldos: CLIENTES y VALIDACION CREDITOS coinciden en {allPeople.length} personas.</p>}
     <div className="summary-grid">
       <SummaryCard label="Total personas" value={number.format(filteredSummary.totalPersonas)} note="Personas registradas" tone="blue" />
       <SummaryCard label="Cartera pendiente" value={currency.format(filteredSummary.carteraPendiente)} note="Saldo neto por persona" tone="amber" />
@@ -1179,7 +1225,10 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
                   <p className="validation-credit-actions-hint">Puedes eliminar movimientos registrados uno a uno o quitar a la persona completa de VALIDACION CREDITOS, incluido su historial importado.</p>
                   <div className="table-wrap validation-credit-history-wrap"><table className="validation-credit-history-table">
                     <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Negocio</th><th>Acciones</th></tr></thead>
-                    <tbody>{recentTransactions.map((row, index) => <tr key={row.savedMovementId ?? row.sourceTransactionKey ?? `${person.sheet}-${index}`}><td data-label="Fecha">{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td data-label="Código">{row.codigo ?? '—'}</td><td className="validation-credit-history-detail" data-label="Detalle">{row.detalle ?? '—'}</td><td data-label="Cantidad">{row.cantidad || 0}</td><td data-label="Valor">{currency.format(row.total || row.valor || 0)}</td><td data-label="Abono">{currency.format(row.abona)}</td><td data-label="Debe">{currency.format(row.debe)}</td><td data-label="Tipo">{row.tipo}</td><td data-label="Negocio">{row.negocio ?? '—'}</td><td className="validation-credit-actions-cell" data-label="Acciones"><div className="validation-credit-row-actions"><button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => row.savedMovementId ? void deleteValidationMovement(row, person.sheet, person.sheet) : setHistoryDeleteCandidate({ person: person.sheet, transaction: row })} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : 'crédito'} de ${person.sheet}`} title="Eliminar movimiento">{deletingMovementId === (row.savedMovementId ?? row.sourceTransactionKey) ? 'Eliminando…' : 'Eliminar'}</button></div></td></tr>)}</tbody>
+                    <tbody>{recentTransactions.map((row, index) => {
+                      const movementId = row.savedMovementId ?? row.sourceCreditId ?? row.sourceTransactionKey
+                      return <tr key={movementId ?? `${person.sheet}-${index}`}><td data-label="Fecha">{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td data-label="Código">{row.codigo ?? '—'}</td><td className="validation-credit-history-detail" data-label="Detalle">{row.detalle ?? '—'}</td><td data-label="Cantidad">{row.cantidad || 0}</td><td data-label="Valor">{currency.format(row.total || row.valor || 0)}</td><td data-label="Abono">{currency.format(row.abona)}</td><td data-label="Debe">{currency.format(row.debe)}</td><td data-label="Tipo">{row.tipo}</td><td data-label="Negocio">{row.negocio ?? '—'}</td><td className="validation-credit-actions-cell" data-label="Acciones"><div className="validation-credit-row-actions"><button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => row.sourceCreditId ? onDeleteCredit(row.sourceCreditId) : row.savedMovementId ? void deleteValidationMovement(row, person.sheet, person.sheet) : setHistoryDeleteCandidate({ person: person.sheet, transaction: row })} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : row.tipo === 'DEVOLUCION' ? 'devolución' : 'crédito'} de ${person.sheet}`} title="Eliminar movimiento">{deletingMovementId === movementId ? 'Eliminando…' : 'Eliminar'}</button></div></td></tr>
+                    })}</tbody>
                   </table></div>
                 </div>
               </td></tr>}
@@ -1260,6 +1309,111 @@ function parseSavedValidationMovement(value: unknown): SavedValidationCreditMove
     business: String(row.business ?? ''),
     created_at: String(row.created_at ?? ''),
   }
+}
+
+function getClientLedgerMovements(data: Record<ModuleKey, WorkbookRow[]>, localMovements: SavedValidationCreditMovement[] = []): SavedValidationCreditMovement[] {
+  const creditMovements = data.CREDITOS
+    .filter((row) => rowCreatedAtValue(row) > importedCreditHistoryCutoff
+      && (isCreditType(row.TIPO) || isAbonoType(row.TIPO) || isReturnType(row.TIPO)))
+    .map((row): SavedValidationCreditMovement => {
+      const personName = String(row.NOMBRE ?? '').trim()
+      const movementType = isAbonoType(row.TIPO) ? 'ABONO' : isReturnType(row.TIPO) ? 'DEVOLUCION' : 'CREDITO'
+      const id = String(row.id ?? '')
+      if (!personName || !id || !dateInputValue(row.FECHA)) {
+        throw new Error('Un movimiento reciente de CREDITOS no tiene cliente, identificador o fecha válidos.')
+      }
+      return {
+        id: `credit:${id}`,
+        request_id: `credit:${id}`,
+        person_sheet: getValidationClientSheet(personName) ?? personName,
+        movement_type: movementType,
+        movement_date: dateInputValue(row.FECHA),
+        code: String(row.CODIGO ?? '').trim() || null,
+        detail: String(row.DETALLE ?? '').trim() || null,
+        quantity: Number(row.CANT ?? 0),
+        unit_value: Number(row.PRECIO ?? 0),
+        discount: Number(row.DESCUENTO ?? 0),
+        total: movementType === 'ABONO' ? 0 : Number(row.VALOR ?? 0),
+        payment_amount: movementType === 'ABONO' ? Number(row.VALOR ?? 0) : 0,
+        balance_after: Number(row.DEUDA ?? 0),
+        business: 'SPORTIVOS',
+        created_at: String(row.created_at ?? ''),
+      }
+    })
+  const remoteMovements = data.VALIDACION_CREDITOS.map(parseSavedValidationMovement)
+  return deduplicateMovementSources([creditMovements, remoteMovements, localMovements])
+}
+
+function getClientLedgerPeople(
+  data: Record<ModuleKey, WorkbookRow[]>,
+  localMovements: SavedValidationCreditMovement[] = [],
+  deletedHistoryKeys: ReadonlySet<string> = new Set(),
+): ValidationCreditPerson[] {
+  const portfolioIdentities = new Set(validationCreditPortfolio.map((person) => getValidationClientIdentity(person.sheet)))
+  const clientByIdentity = new Map<string, WorkbookRow>()
+  data.CLIENTES.forEach((client) => {
+    const identity = getValidationClientIdentity(client.NOMBRE)
+    if (identity && !clientByIdentity.has(identity)) clientByIdentity.set(identity, client)
+  })
+  const clientNames = [
+    ...data.CLIENTES.map((row) => String(row.NOMBRE ?? '').trim()),
+    ...data.CREDITOS.map((row) => String(row.NOMBRE ?? '').trim()),
+    ...data.VALIDACION_CREDITOS.map((row) => String(row.person_sheet ?? '').trim()),
+  ].filter(Boolean)
+  const movements = getClientLedgerMovements(data, localMovements).filter((movement) => {
+    const identity = getValidationClientIdentity(movement.person_sheet)
+    if (portfolioIdentities.has(identity)) return true
+    const snapshot = clientByIdentity.get(identity)
+    const asOf = Date.parse(String(snapshot?.saldo_base_fecha ?? ''))
+    return !Number.isFinite(asOf) || rowCreatedAtValue(movement) > asOf
+  })
+  return mergeValidationCreditMovements(movements, clientNames, deletedHistoryKeys).map((person) => {
+    const identity = getValidationClientIdentity(person.sheet)
+    if (portfolioIdentities.has(identity)) return person
+    const client = clientByIdentity.get(identity)
+    const balance = Number(client?.saldo_base)
+    const asOf = Date.parse(String(client?.saldo_base_fecha ?? ''))
+    if (!client || client.saldo_base === null || client.saldo_base === undefined || client.saldo_base === ''
+      || !Number.isFinite(balance) || !Number.isFinite(asOf)) return person
+    const transactions = person.transactions.map((transaction) => ({ ...transaction, debe: transaction.debe + balance }))
+    const saldoPendiente = person.saldoPendiente + balance
+    return {
+      ...person,
+      transactions,
+      saldoPendiente,
+      estado: saldoPendiente > 0 ? 'PENDIENTE' : 'AL_DIA',
+    }
+  })
+}
+
+function deduplicateMovementSources(sources: SavedValidationCreditMovement[][]): SavedValidationCreditMovement[] {
+  const result: SavedValidationCreditMovement[] = []
+  const previousMaximums = new Map<string, number>()
+  for (const source of sources) {
+    const sourceCounts = new Map<string, number>()
+    for (const movement of source) {
+      const key = validationMovementIdentity(movement)
+      const occurrence = (sourceCounts.get(key) ?? 0) + 1
+      sourceCounts.set(key, occurrence)
+      if (occurrence > (previousMaximums.get(key) ?? 0)) result.push(movement)
+    }
+    sourceCounts.forEach((count, key) => previousMaximums.set(key, Math.max(count, previousMaximums.get(key) ?? 0)))
+  }
+  return result
+}
+
+function validationMovementIdentity(movement: SavedValidationCreditMovement): string {
+  return [
+    getValidationClientIdentity(movement.person_sheet),
+    movement.movement_date.slice(0, 10),
+    movement.movement_type,
+    normalizeCode(movement.code),
+    Number(movement.quantity ?? 0),
+    Number(movement.unit_value ?? 0),
+    Number(movement.discount ?? 0),
+    Number(movement.total ?? 0),
+    Number(movement.payment_amount ?? 0),
+  ].join('|')
 }
 
 async function readAllValidationMovementRows(client: NonNullable<typeof supabase>) {
@@ -1505,7 +1659,7 @@ function SummaryCard({ label, value, note, tone }: { label: string; value: strin
 }
 
 function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFilters, onCreditFiltersChange, onNew, onPhysicalCount, onDelete, onDeleteClient, deletingRecord, hiddenClientRecordsError, deletedHistoryRecords, onNotice, physicalCountsError }: { module: ModuleKey; data: Record<ModuleKey, WorkbookRow[]>; rows: WorkbookRow[]; totalRows: number; search: string; onSearch: (value: string) => void; creditFilters: CreditFilters; onCreditFiltersChange: (filters: CreditFilters) => void; onNew: () => void; onPhysicalCount: () => void; onDelete: (module: ModuleKey, row: WorkbookRow, adjustStock?: boolean) => void; onDeleteClient: (row: WorkbookRow) => void; deletingRecord: string | null; hiddenClientRecordsError: string; deletedHistoryRecords: DeletedValidationHistoryRecord[]; onNotice: (message: string) => void; physicalCountsError: string }) {
-  const columns = useMemo(() => moduleColumns[module].filter((column) => column.key !== 'Columna1' && !(module === 'CREDITOS' && column.key === 'DETALLE') && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO_AL_POR_MAYOR', 'COSTO MO', 'CONSIGNACION'].includes(normalizeExpenseText(column.key).toUpperCase()))), [module])
+  const columns = useMemo(() => moduleColumns[module].filter((column) => column.key !== 'Columna1' && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO_AL_POR_MAYOR', 'COSTO MO', 'CONSIGNACION'].includes(normalizeExpenseText(column.key).toUpperCase()))), [module])
   const displayRows = useMemo(() => module === 'CLIENTES'
     ? [...rows].sort((a, b) => compareClientNames(a.NOMBRE, b.NOMBRE))
     : module === 'INVENTARIO_PT' || module === 'COSTOS_NO_PRODUCIDOS'
@@ -1516,35 +1670,46 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
   const pageCount = Math.max(1, Math.ceil(displayRows.length / pageSize))
   const pageRows = displayRows.slice(page * pageSize, (page + 1) * pageSize)
   useEffect(() => { setPage(0) }, [module, rows])
+  const clientLedgerPeople = useMemo(() => getClientLedgerPeople(data, [], new Set(deletedHistoryRecords.map((record) => record.transaction_key))), [data, deletedHistoryRecords])
   const clientSnapshots = useMemo(() => {
     const snapshots = new Map<string, { balance: number; asOf: number; movementCutoff: number }>()
-    data.CLIENTES.forEach((client) => {
-      const key = getValidationClientIdentity(client.NOMBRE)
-      const balance = Number(client.saldo_base)
-      const asOf = Date.parse(String(client.saldo_base_fecha ?? ''))
-      if (key && client.saldo_base !== null && client.saldo_base !== undefined && client.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)) snapshots.set(key, { balance, asOf, movementCutoff: asOf })
-    })
     mergeValidationCreditMovements([], [], new Set(deletedHistoryRecords.map((record) => record.transaction_key))).forEach((person) => snapshots.set(getValidationClientIdentity(person.sheet), {
       balance: person.saldoPendiente,
       asOf: validationCreditSourceAsOf,
       movementCutoff: importedCreditHistoryCutoff,
     }))
+    clientLedgerPeople.forEach((person) => {
+      const identity = getValidationClientIdentity(person.sheet)
+      if (snapshots.has(identity)) return
+      const client = data.CLIENTES.find((row) => getValidationClientIdentity(row.NOMBRE) === identity)
+      const balance = Number(client?.saldo_base)
+      const asOf = Date.parse(String(client?.saldo_base_fecha ?? ''))
+      snapshots.set(identity, Number.isFinite(balance) && Number.isFinite(asOf)
+        ? { balance, asOf, movementCutoff: asOf }
+        : { balance: person.saldoPendiente, asOf: validationCreditSourceAsOf, movementCutoff: importedCreditHistoryCutoff })
+    })
     return snapshots
-  }, [data.CLIENTES, deletedHistoryRecords])
+  }, [clientLedgerPeople, data.CLIENTES, deletedHistoryRecords])
   const clientTransactions = useMemo(() => {
     const transactions = new Map<string, WorkbookRow[]>()
-    const workbookDuplicateCreditIds = getWorkbookDuplicateCreditIds(data.CREDITOS)
-    data.CREDITOS.forEach((row) => {
-      const key = getValidationClientIdentity(row.NOMBRE)
-      const snapshot = clientSnapshots.get(key)
-      if (!key || (snapshot && rowCreatedAtValue(row) <= snapshot.movementCutoff) || workbookDuplicateCreditIds.has(String(row.id ?? ''))) return
-      const group = transactions.get(key) ?? []
-      group.push(row)
-      transactions.set(key, group)
+    clientLedgerPeople.forEach((person) => {
+      const key = getValidationClientIdentity(person.sheet)
+      const rows = person.transactions.filter((transaction) => transaction.savedMovementId || transaction.sourceCreditId).map((transaction) => ({
+        FECHA: transaction.fecha,
+        CODIGO: transaction.codigo,
+        DETALLE: transaction.detalle,
+        CANT: transaction.cantidad,
+        DESCUENTO: transaction.descuento,
+        PRECIO: transaction.valor,
+        NOMBRE: person.sheet,
+        TIPO: transaction.tipo === 'ABONO' ? 'Abono' : transaction.tipo === 'DEVOLUCION' ? 'Devolución' : 'Credito',
+        VALOR: transaction.tipo === 'ABONO' ? transaction.abona : transaction.tipo === 'DEVOLUCION' ? -transaction.total : transaction.total,
+        DEUDA: transaction.debe,
+      }))
+      if (key && rows.length) transactions.set(key, rows)
     })
-    transactions.forEach((items) => items.sort((a, b) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA)))
     return transactions
-  }, [clientSnapshots, data.CREDITOS])
+  }, [clientLedgerPeople])
   const isReport = module === 'BALANCE'
   const canDelete = editableModules.has(module)
   return <section className="page-content">
@@ -1975,16 +2140,14 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
   const data = useMemo(() => ({ ...sourceData, INVENTARIO_PT: getRows('INVENTARIO_PT', sourceData, physicalCounts) }), [sourceData, physicalCounts])
   const columns = useMemo(() => moduleColumns[module].filter((column) => !['ENTRADAS', 'SALIDAS', 'STOCK', 'CONTEO_FISICO', 'CONTEO FISICO', 'GANANCIA', 'TOTAL', 'DEUDA', 'Columna1', 'VALOR_PRODUCTO', 'COSTO TOTAL', 'CONSIGNACION'].includes(column.key) && !(module === 'INVENTARIO_PT' && normalizeExpenseText(column.key).replace(/[^a-z]/g, '') === 'conteofisico') && !(module === 'INVENTARIO_PT' && ['PRECIO', 'PRECIO_AL_POR_MAYOR', 'COSTO', 'Costo fijo', 'Costo MO'].includes(column.key)) && (column.key !== 'VALOR' || module === 'CREDITOS' || module === 'GASTOS') && (column.key !== 'MES' || module === 'GASTOS')), [module])
   const clientNames = useMemo(() => {
-    const hidden = new Set(hiddenClientRecords.filter((record) => record.hidden_from_clients).map((record) => record.client_identity))
-    const names = new Map(validationCreditPortfolio.map((person) => [normalizeClientName(person.sheet), person.sheet]))
-    ;[...data.CLIENTES, ...data.CREDITOS].forEach((row) => {
-      const name = String(row.NOMBRE ?? '').trim()
-      const key = normalizeClientName(name)
-      const identity = getValidationClientIdentity(name)
-      if (key && !names.has(identity)) names.set(identity, getValidationClientSheet(name) ?? name)
-    })
-    return [...names.values()].filter((name) => !hidden.has(normalizeClientName(name))).sort(compareClientNames)
-  }, [data.CLIENTES, data.CREDITOS, hiddenClientRecords])
+    const hidden = new Set(hiddenClientRecords
+      .filter((record) => record.hidden_from_clients || record.hidden_from_validation)
+      .map((record) => record.client_identity))
+    return getRows('CLIENTES', data, physicalCounts, new Set(deletedHistoryRecords.map((record) => record.transaction_key)))
+      .map((row) => String(row.NOMBRE ?? '').trim())
+      .filter((name) => name && !hidden.has(normalizeClientName(name)))
+      .sort(compareClientNames)
+  }, [data, deletedHistoryRecords, hiddenClientRecords, physicalCounts])
   const creditKeys = ['TIPO', 'FECHA', 'NOMBRE', 'CODIGO', 'DETALLE', 'CANT', 'DESCUENTO', 'PRECIO', 'VALOR', 'COMENTARIO', 'MEDIO PAGO']
   const [values, setValues] = useState<WorkbookRow>(() => Object.fromEntries(columns.map((column) => [column.key, column.type === 'date' ? localDateInputValue() : column.key === 'TIPO' ? CREDIT_TYPE : column.key === 'MES' && module === 'GASTOS' ? 'Otro' : column.key === 'COSTO FIJO' ? 500 : column.type === 'number' ? '' : ''])) as WorkbookRow)
   const [error, setError] = useState('')
@@ -1994,7 +2157,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
   const formColumns = useMemo(() => isCreditForm ? creditKeys.map((key) => columns.find((column) => column.key === key)).filter((column): column is Column => column !== undefined && !(isAbono && ['CODIGO', 'CANT', 'DESCUENTO', 'PRECIO'].includes(column.key)) && !(column.key === 'DETALLE' && !isAbono) && !(isReturn && column.key === 'VALOR') && !(column.key === 'VALOR' && !isAbono) && !(column.key === 'MEDIO PAGO' && !isAbono && !isReturn)) : columns, [columns, isAbono, isCreditForm, isReturn])
   const selectedClient = String(values.NOMBRE ?? '').trim()
   const deletedHistoryKeys = useMemo(() => new Set(deletedHistoryRecords.map((record) => record.transaction_key)), [deletedHistoryRecords])
-  const currentDebt = useMemo(() => isCreditForm ? getClientDebt(data.CREDITOS, selectedClient, data.CLIENTES, deletedHistoryKeys) : 0, [data.CLIENTES, data.CREDITOS, deletedHistoryKeys, isCreditForm, selectedClient])
+  const currentDebt = useMemo(() => isCreditForm ? getClientDebt(data, selectedClient, deletedHistoryKeys) : 0, [data, deletedHistoryKeys, isCreditForm, selectedClient])
   const returnValue = Math.max(0, calculateLineTotal(values.CANT, values.PRECIO, values.DESCUENTO))
   const quantityKey = module === 'ENTRADAS' ? 'CANTIDAD' : 'CANT'
   const lineQuantity = Number(values[quantityKey] ?? 0)
@@ -2098,7 +2261,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
     }
     if (module === 'CLIENTES') {
       const identity = getValidationClientIdentity(values.NOMBRE)
-      if (data.CLIENTES.some((client) => getValidationClientIdentity(client.NOMBRE) === identity)) {
+      if (clientNames.some((name) => getValidationClientIdentity(name) === identity)) {
         setError('Ya existe un cliente con ese nombre. Revisa la lista y selecciona el existente.')
         return
       }
@@ -2171,6 +2334,7 @@ function RecordForm({ module, data: sourceData, physicalCounts, periodPolicy, hi
         </div>}
         {module === 'VENTAS' || isCreditForm && !isAbono ? <p className="form-hint">Al elegir el código se completa el producto y su precio. Los códigos sin existencias no se pueden seleccionar.</p> : null}
         {(module === 'VENTAS' || module === 'ENTRADAS' || isCreditForm && !isAbono) && <div className="quantity-preview" aria-live="polite">
+          {(module === 'VENTAS' || isCreditForm) && <div><span>Producto seleccionado</span><strong>{selectedProduct ? `${String(selectedProduct.CODIGO ?? '')} · ${String(selectedProduct.DETALLE ?? '')}` : '-'}</strong></div>}
           <div><span>{module === 'ENTRADAS' ? 'Unidades ingresadas' : 'Unidades'}</span><strong>{number.format(lineQuantity)}</strong></div>
           <div><span>{module === 'ENTRADAS' ? 'Costo por unidad' : 'Precio por unidad'}</span><strong>{currency.format(lineUnitPrice)}</strong></div>
           <div><span>{module === 'VENTAS' ? 'Total de la venta' : module === 'ENTRADAS' ? 'Valor total de la entrada' : 'Valor de los productos'}</span><strong>{currency.format(lineTotal)}</strong></div>
@@ -2247,45 +2411,18 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
     })
   }
   if (module === 'CLIENTES') {
-    const clients = new Map<string, WorkbookRow>()
-    const snapshots = new Map<string, { balance: number; asOf: number; movementCutoff: number }>()
+    const clientRows = new Map<string, WorkbookRow>()
     data.CLIENTES.forEach((row) => {
       const name = String(row.NOMBRE ?? '').trim()
-      const key = normalizeClientName(name)
       const identity = getValidationClientIdentity(name)
-      if (key && !clients.has(identity)) clients.set(identity, { ...row, NOMBRE: getValidationClientSheet(name) ?? name })
-      const balance = Number(row.saldo_base)
-      const asOf = Date.parse(String(row.saldo_base_fecha ?? ''))
-      if (identity && row.saldo_base !== null && row.saldo_base !== undefined && row.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)) snapshots.set(identity, { balance, asOf, movementCutoff: asOf })
+      if (identity && !clientRows.has(identity)) clientRows.set(identity, { ...row, NOMBRE: getValidationClientSheet(name) ?? name })
     })
-    mergeValidationCreditMovements([], [], deletedHistoryKeys).forEach((person) => snapshots.set(getValidationClientIdentity(person.sheet), {
-      balance: person.saldoPendiente,
-      asOf: validationCreditSourceAsOf,
-      movementCutoff: importedCreditHistoryCutoff,
-    }))
-    validationCreditOpeningBalances.forEach((balance, identity) => {
-      if (!snapshots.has(identity)) snapshots.set(identity, { balance, asOf: validationCreditSourceAsOf, movementCutoff: importedCreditHistoryCutoff })
-    })
-    const balancesByClient = new Map<string, number>()
-    snapshots.forEach((snapshot, identity) => balancesByClient.set(identity, snapshot.balance))
-    const workbookDuplicateCreditIds = getWorkbookDuplicateCreditIds(data.CREDITOS)
-    data.CREDITOS.forEach((row) => {
-      const identity = getValidationClientIdentity(row.NOMBRE)
-      const key = normalizeClientName(row.NOMBRE)
-      if (!key) return
-      if (!clients.has(identity)) clients.set(identity, { NOMBRE: getValidationClientSheet(row.NOMBRE) ?? String(row.NOMBRE ?? '').trim() })
-      const snapshot = snapshots.get(identity)
-      if ((!snapshot || rowCreatedAtValue(row) > snapshot.movementCutoff) && !workbookDuplicateCreditIds.has(String(row.id ?? ''))) {
-        balancesByClient.set(identity, (balancesByClient.get(identity) ?? 0) + getCreditMovementDelta(row))
-      }
-    })
-    validationCreditPortfolio.forEach((person) => {
-      const identity = getValidationClientIdentity(person.sheet)
-      if (!clients.has(identity)) clients.set(identity, { NOMBRE: person.sheet })
-      if (!balancesByClient.has(identity)) balancesByClient.set(identity, person.saldoPendiente)
-    })
-    const balances: WorkbookRow[] = [...clients.entries()].map(([identity, row]) => ({ ...row, Columna1: balancesByClient.get(identity) ?? 0 }))
-    return balances.sort((a, b) => String(a.NOMBRE ?? '').localeCompare(String(b.NOMBRE ?? ''), 'es', { sensitivity: 'base' }))
+    const people = getClientLedgerPeople(data, [], deletedHistoryKeys)
+    return people.map((person) => ({
+      ...(clientRows.get(getValidationClientIdentity(person.sheet)) ?? {}),
+      NOMBRE: person.sheet,
+      Columna1: person.saldoPendiente,
+    })).sort((a, b) => compareClientNames(a.NOMBRE, b.NOMBRE))
   }
   if (module === 'COSTOS_NO_PRODUCIDOS') {
     const latestByCode = new Map<string, WorkbookRow>()
@@ -2313,7 +2450,15 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
       && !String(row.CODIGO ?? '').trim()
       && Number(row.CANT ?? 0) === 0
       && Number(row.PRECIO ?? 0) === 0
-      && Number(row.VALOR ?? 0) === 0))
+      && Number(row.VALOR ?? 0) === 0)).map((row) => {
+      const code = String(row.CODIGO ?? '').trim()
+      const product = data.INVENTARIO_PT.find((item) => normalizeCode(item.CODIGO) === normalizeCode(code))
+      return {
+        ...row,
+        NOMBRE: getValidationClientSheet(row.NOMBRE) ?? row.NOMBRE,
+        DETALLE: String(row.DETALLE ?? '').trim() || product?.DETALLE || null,
+      }
+    })
   }
   return data[module]
 }
@@ -2433,71 +2578,15 @@ function getValidationClientSheet(value: unknown): string | undefined {
 function getValidationClientIdentity(value: unknown): string {
   return normalizeClientName(getValidationClientSheet(value) ?? value)
 }
-function getClientBalanceSnapshot(clients: WorkbookRow[], clientName: string, deletedHistoryKeys: ReadonlySet<string> = new Set()): { balance: number; asOf: number; movementCutoff: number } | null {
-  const key = getValidationClientIdentity(clientName)
-  const validationPerson = mergeValidationCreditMovements([], [], deletedHistoryKeys).find((person) => getValidationClientIdentity(person.sheet) === key)
-  if (validationPerson) return {
-    balance: validationPerson.saldoPendiente,
-    asOf: validationCreditSourceAsOf,
-    movementCutoff: importedCreditHistoryCutoff,
-  }
-  const client = clients.find((row) => getValidationClientIdentity(row.NOMBRE) === key)
-  const balance = Number(client?.saldo_base)
-  const asOf = Date.parse(String(client?.saldo_base_fecha ?? ''))
-  if (client && client.saldo_base !== null && client.saldo_base !== undefined && client.saldo_base !== '' && Number.isFinite(balance) && Number.isFinite(asOf)) return { balance, asOf, movementCutoff: asOf }
-  const historicalBalance = validationCreditOpeningBalances.get(key)
-  return historicalBalance === undefined ? null : { balance: historicalBalance, asOf: validationCreditSourceAsOf, movementCutoff: importedCreditHistoryCutoff }
-}
 function getCreditMovementDelta(row: WorkbookRow): number {
   const value = Number(row.VALOR ?? 0)
   return isAbonoType(row.TIPO) || isReturnType(row.TIPO) ? -value : isCreditType(row.TIPO) ? value : 0
 }
-function getWorkbookCreditMatchKey(identity: string, type: 'COMPRA' | 'ABONO', code: unknown, quantity: unknown, discount: unknown, amount: unknown): string {
-  return [identity, type, normalizeCode(String(code ?? '')), Number(quantity ?? 0), Number(discount ?? 0), Number(amount ?? 0)].join('|')
-}
-function getWorkbookDuplicateCreditIds(rows: WorkbookRow[]): Set<string> {
-  const sourceMatches = new Map<string, Array<{ date: number | null; consumed: boolean }>>()
-  validationCreditPortfolio.forEach((person) => person.transactions.forEach((transaction) => {
-    const identity = getValidationClientIdentity(person.sheet)
-    const type = transaction.tipo
-    const amount = type === 'ABONO' ? transaction.abona : transaction.total
-    const key = getWorkbookCreditMatchKey(identity, type, transaction.codigo, transaction.cantidad, transaction.descuento, amount)
-    const matches = sourceMatches.get(key) ?? []
-    matches.push({ date: transaction.fecha ? rowDateValue(transaction.fecha) : null, consumed: false })
-    sourceMatches.set(key, matches)
-  }))
-  const duplicateIds = new Set<string>()
-  rows.filter((row) => rowCreatedAtValue(row) > importedCreditHistoryCutoff)
-    .slice()
-    .sort((a, b) => rowCreatedAtValue(a) - rowCreatedAtValue(b))
-    .forEach((row) => {
-      if (!isCreditType(row.TIPO) && !isAbonoType(row.TIPO)) return
-      const identity = getValidationClientIdentity(row.NOMBRE)
-      const type = isAbonoType(row.TIPO) ? 'ABONO' : 'COMPRA'
-      const amount = Number(row.VALOR ?? 0)
-      const key = getWorkbookCreditMatchKey(identity, type, row.CODIGO, row.CANT, row.DESCUENTO, amount)
-      const matches = sourceMatches.get(key) ?? []
-      const date = row.FECHA === null || row.FECHA === undefined || row.FECHA === '' ? null : rowDateValue(row.FECHA)
-      const match = matches
-        .filter((candidate) => !candidate.consumed && (candidate.date === null || date === null
-          ? candidate.date === date
-          : Math.abs(candidate.date - date) <= 86400000))
-        .sort((a, b) => Math.abs((a.date ?? 0) - (date ?? 0)) - Math.abs((b.date ?? 0) - (date ?? 0)))[0]
-      if (!match) return
-      match.consumed = true
-      if (row.id !== null && row.id !== undefined && row.id !== '') duplicateIds.add(String(row.id))
-    })
-  return duplicateIds
-}
-function getClientDebt(rows: WorkbookRow[], clientName: string, clients: WorkbookRow[] = [], deletedHistoryKeys: ReadonlySet<string> = new Set()): number {
+function getClientDebt(data: Record<ModuleKey, WorkbookRow[]>, clientName: string, deletedHistoryKeys: ReadonlySet<string> = new Set()): number {
   if (!clientName) return 0
-  const key = getValidationClientIdentity(clientName)
-  const snapshot = getClientBalanceSnapshot(clients, clientName, deletedHistoryKeys)
-  const workbookDuplicateCreditIds = getWorkbookDuplicateCreditIds(rows)
-  return rows.filter((row) => getValidationClientIdentity(row.NOMBRE) === key
-      && (!snapshot || rowCreatedAtValue(row) > snapshot.movementCutoff)
-      && !workbookDuplicateCreditIds.has(String(row.id ?? '')))
-    .reduce((balance, row) => balance + getCreditMovementDelta(row), snapshot?.balance ?? 0)
+  const identity = getValidationClientIdentity(clientName)
+  return getClientLedgerPeople(data, [], deletedHistoryKeys)
+    .find((person) => getValidationClientIdentity(person.sheet) === identity)?.saldoPendiente ?? 0
 }
 function rowDateValue(value: CellValue): number {
   if (typeof value === 'number') return new Date(Date.UTC(1899, 11, 30) + value * 86400000).getTime()
@@ -2540,13 +2629,16 @@ function matchesPeriod(row: WorkbookRow, month: number, year: number): boolean {
   if (date) { const parsed = new Date(date); return parsed.getMonth() + 1 === month && parsed.getFullYear() === year }
   return String(row.MES ?? '').trim().toLowerCase() === monthLabels[month - 1]
 }
-function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKey, WorkbookRow[]>): WorkbookRow {
+function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKey, WorkbookRow[]>, deletedHistoryKeys: ReadonlySet<string> = new Set()): WorkbookRow {
   const next = { ...row }
   moduleColumns[module].forEach((column) => {
     if (column.type === 'number' && next[column.key] === '') next[column.key] = null
     else if (column.type === 'number' && next[column.key] !== null && next[column.key] !== undefined) next[column.key] = Number(next[column.key])
   })
-  if (module === 'CLIENTES') next.NOMBRE = String(next.NOMBRE ?? '').trim().replace(/\s+/g, ' ')
+  if (module === 'CLIENTES') {
+    const name = String(next.NOMBRE ?? '').trim().replace(/\s+/g, ' ')
+    next.NOMBRE = getValidationClientSheet(name) ?? name
+  }
   if (module === 'INVENTARIO_PT') {
     const code = String(next.CODIGO ?? '').trim().toLowerCase()
     const cost = getLatestProductCost(data.COSTOS_NO_PRODUCIDOS, code)
@@ -2577,7 +2669,7 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     const type = isAbonoType(next.TIPO) ? 'Abono' : isReturnType(next.TIPO) ? 'Devolución' : CREDIT_TYPE
     const clientName = String(next.NOMBRE ?? '').trim()
     next.TIPO = type
-    next.NOMBRE = clientName
+    next.NOMBRE = getValidationClientSheet(clientName) ?? clientName
     if (isAbonoType(type)) {
       next.CODIGO = null
       next.DETALLE = String(next.DETALLE ?? '').trim() || null
@@ -2597,7 +2689,7 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
     } else {
       next.VALOR = Number(next.VALOR ?? 0) || calculateLineTotal(next.CANT, next.PRECIO, next.DESCUENTO)
     }
-    next.DEUDA = getClientDebt(data.CREDITOS, clientName, data.CLIENTES) + getCreditMovementDelta(next)
+    next.DEUDA = getClientDebt(data, clientName, deletedHistoryKeys) + getCreditMovementDelta(next)
     next.MES = monthName(String(next.FECHA ?? ''))
   }
   if (module === 'ENTRADAS') {
