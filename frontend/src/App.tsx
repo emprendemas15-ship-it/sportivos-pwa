@@ -54,7 +54,7 @@ const validationCreditTable = 'validacion_creditos_movimientos'
 const hiddenClientTable = 'sportivos_clientes_eliminados'
 const deletedValidationHistoryTable = 'validacion_creditos_registros_eliminados'
 const validationCreditBusinesses = ['COLIPETS', 'OTRO', 'SPORTIVOS']
-const validationCreditClientSheets = new Map(validationCreditPortfolio.flatMap((person) => [person.name, person.sheet].map((name) => [normalizeClientName(name), person.sheet] as const)))
+const validationCreditClientSheets = new Map(validationCreditPortfolio.flatMap((person) => [person.name, person.sheet, ...(person.aliases ?? [])].map((name) => [normalizeClientName(name), person.sheet] as const)))
 const renamedValidationCreditClient = validationCreditPortfolio.find((person) => normalizeClientName(person.sheet) === normalizeClientName('YAMIRLEY AMIGA DE ANGELA VIP'))
 if (renamedValidationCreditClient) {
   for (const alias of ['YARMILE AMIGA ANGELA', 'YAMIRLE AMIGA DE ANGELA', 'YAMIRLEY AMIGA ANGELA VIP']) {
@@ -72,6 +72,9 @@ const validationCreditClientAliases = [
   ['MANUELA AMIGA MANUEL', 'MANUELA AMIGA DE MANUEL'],
   ['YULETH AMIGA DE NERY', 'YULET AMIGA NERY'],
   ['YULET AMIGA DE NERY', 'YULET AMIGA NERY'],
+  ['KARIS INTER EJECUTIVA', 'KARIS INTER'],
+  ['KATE LIAM', 'KATER MAMA LIAM'],
+  ['RAUL HERMANO SANDRA', 'RAUL H SANDRA GUZMAN'],
 ]
 validationCreditClientAliases.forEach(([alias, canonical]) => {
   const person = validationCreditPortfolio.find((candidate) => normalizeClientName(candidate.sheet) === normalizeClientName(canonical))
@@ -2302,6 +2305,15 @@ function getRows(module: ModuleKey | 'MENU', data: Record<ModuleKey, WorkbookRow
         Columna1: Number(row['PRECIO AL PUBLICO'] ?? 0) - totalCost,
       }
     })
+  }
+  if (module === 'CREDITOS') {
+    // An imported sheet-header row in NERY was stored as a zero-value credit.
+    // Keep the Supabase row for auditability, but don't show it as a movement.
+    return data.CREDITOS.filter((row) => !(normalizeClientName(row.DETALLE) === 'detalle'
+      && !String(row.CODIGO ?? '').trim()
+      && Number(row.CANT ?? 0) === 0
+      && Number(row.PRECIO ?? 0) === 0
+      && Number(row.VALOR ?? 0) === 0))
   }
   return data[module]
 }

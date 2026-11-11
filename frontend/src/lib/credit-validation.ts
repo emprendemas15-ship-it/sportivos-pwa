@@ -21,6 +21,7 @@ export type ValidationCreditTransaction = {
 export type ValidationCreditPerson = {
   name: string
   sheet: string
+  aliases?: string[]
   transactions: ValidationCreditTransaction[]
   totalCompras: number
   totalAbonos: number
@@ -72,6 +73,15 @@ const validationCreditData = validationCreditDataRaw as ValidationCreditDataset
 export const validationCreditPortfolio = validationCreditData.people
 export const validationCreditSourceWorkbook = validationCreditData.sourceWorkbook ?? 'CREDITOS.xlsm'
 export const validationCreditSourceAsOf = Date.parse(validationCreditData.sourceAsOf ?? validationCreditData.generatedAt)
+
+const clientIdentityKey = (value: string): string => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es')
+const clientIdentityAliases = new Map<string, string>()
+validationCreditPortfolio.forEach((person) => {
+  const canonical = clientIdentityKey(person.sheet)
+  clientIdentityAliases.set(clientIdentityKey(person.name), canonical)
+  clientIdentityAliases.set(canonical, canonical)
+  person.aliases?.forEach((alias) => clientIdentityAliases.set(clientIdentityKey(alias), canonical))
+})
 
 export function getValidationCreditSummary() {
   return validationCreditData.summary
@@ -218,7 +228,7 @@ export function getValidationCreditTransactionKeys(personSheet: string, transact
 }
 
 function normalizeClientIdentity(value: string): string {
-  const identity = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es')
+  const identity = clientIdentityKey(value)
   const aliases: Record<string, string> = {
     'yarmile amiga angela': 'yamirley amiga de angela vip',
     'yamirle amiga de angela': 'yamirley amiga de angela vip',
@@ -233,8 +243,12 @@ function normalizeClientIdentity(value: string): string {
     'manuela amiga manuel': 'manuela amiga de manuel',
     'yuleth amiga de nery': 'yulet amiga nery',
     'yulet amiga de nery': 'yulet amiga nery',
+    'karis inter ejecutiva': 'karis inter',
+    'kate liam': 'kater mama liam',
+    'raul hermano sandra': 'raul h sandra guzman',
   }
-  return aliases[identity] ?? identity
+  const normalized = aliases[identity] ?? identity
+  return clientIdentityAliases.get(normalized) ?? clientIdentityAliases.get(identity) ?? normalized
 }
 
 function validationTransactionKey(transaction: ValidationCreditTransaction): string {

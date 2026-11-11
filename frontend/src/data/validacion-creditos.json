@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-10T23:11:32.626Z",
+  "generatedAt": "2026-11-11T02:45:06.794Z",
   "sourceWorkbook": "CREDITOS (4).xlsm",
   "sourceAsOf": "2026-11-10T22:26:56.447Z",
   "summary": {
@@ -17,6 +17,7 @@
     {
       "name": "ALEXANDRA BETANCUR",
       "sheet": "ALEXANDRA BETANCUR",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-09-04",
@@ -60,6 +61,7 @@
     {
       "name": "ANA MARIA RESTREPO",
       "sheet": "ANA MARIA RESTREPO",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-09-08",
@@ -656,8 +658,11 @@
       "issues": []
     },
     {
-      "name": "ANDRES MOMPOS",
+      "name": "ANDRES MOMPOZ",
       "sheet": "ANDRES MOMPOZ",
+      "aliases": [
+        "ANDRES MOMPOS"
+      ],
       "transactions": [
         {
           "fecha": "2025-04-28",
@@ -1121,6 +1126,7 @@
     {
       "name": "ANGELA VIP",
       "sheet": "ANGELA VIP",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2023-11-29",
@@ -1912,8 +1918,11 @@
       "issues": []
     },
     {
-      "name": "ANGIE SODEXO",
+      "name": "ANGIE RIONEGRO",
       "sheet": "ANGIE RIONEGRO",
+      "aliases": [
+        "ANGIE SODEXO"
+      ],
       "transactions": [
         {
           "fecha": "2024-11-01",
@@ -2197,6 +2206,7 @@
     {
       "name": "ARACELLY DTK",
       "sheet": "ARACELLY DTK",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-02-06",
@@ -2463,8 +2473,11 @@
       "issues": []
     },
     {
-      "name": "BIBIANA  MEMFIS",
+      "name": "BIBIANA GALLETAS",
       "sheet": "BIBIANA GALLETAS",
+      "aliases": [
+        "BIBIANA  MEMFIS"
+      ],
       "transactions": [
         {
           "fecha": "2023-11-23",
@@ -2658,6 +2671,7 @@
     {
       "name": "BRIAN ENVIA",
       "sheet": "BRIAN ENVIA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-07-05",
@@ -2806,6 +2820,7 @@
     {
       "name": "CAROLINA FRASSER",
       "sheet": "CAROLINA FRASSER",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-10-26",
@@ -2954,6 +2969,7 @@
     {
       "name": "CAROLINA MARINILLA",
       "sheet": "CAROLINA MARINILLA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-04-11",
@@ -3222,6 +3238,7 @@
     {
       "name": "CATALINA CASTRO DTK",
       "sheet": "CATALINA CASTRO DTK",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-04-13",
@@ -3505,6 +3522,7 @@
     {
       "name": "CLAUDIA MORE",
       "sheet": "CLAUDIA MORE",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-05-20",
@@ -4118,6 +4136,7 @@
     {
       "name": "CLAUDIA REINOSA",
       "sheet": "CLAUDIA REINOSA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-12-06",
@@ -4716,6 +4735,7 @@
     {
       "name": "CLAUDIA CUÑADA",
       "sheet": "CLAUDIA CUÑADA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-02-22",
@@ -5074,6 +5094,7 @@
     {
       "name": "CARLOS AGUIRRE",
       "sheet": "CARLOS AGUIRRE",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-05-20",
@@ -5237,6 +5258,7 @@
     {
       "name": "CARLOS SANMARTIN",
       "sheet": "CARLOS SANMARTIN",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-01-27",
@@ -5308,8 +5330,11 @@
       "issues": []
     },
     {
-      "name": "CLAUDIA CASTAÑO",
+      "name": "CLAUDIA  CASTAÑO",
       "sheet": "CLAUDIA  CASTAÑO",
+      "aliases": [
+        "CLAUDIA CASTAÑO"
+      ],
       "transactions": [
         {
           "fecha": "2024-09-08",
@@ -5383,6 +5408,7 @@
     {
       "name": "CARLOS DTK",
       "sheet": "CARLOS DTK",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-06-28",
@@ -5439,8 +5465,11 @@
       "issues": []
     },
     {
-      "name": "DANY PAJARA",
+      "name": "DANY DTK",
       "sheet": "DANY DTK",
+      "aliases": [
+        "DANY PAJARA"
+      ],
       "transactions": [
         {
           "fecha": "2024-08-16",
@@ -5589,6 +5618,7 @@
     {
       "name": "EFREN MARIN",
       "sheet": "EFREN MARIN",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-09-08",
@@ -6155,8 +6185,11 @@
       "issues": []
     },
     {
-      "name": "ESTEFANIA  J Y G",
+      "name": "ESTEFANIA JYG",
       "sheet": "ESTEFANIA JYG",
+      "aliases": [
+        "ESTEFANIA  J Y G"
+      ],
       "transactions": [
         {
           "fecha": "2025-10-17",
@@ -6633,8 +6666,11 @@
       "issues": []
     },
     {
-      "name": "FABIO LEGUMBRERIA",
+      "name": "FABIO  LEGUMBRERIA",
       "sheet": "FABIO  LEGUMBRERIA",
+      "aliases": [
+        "FABIO LEGUMBRERIA"
+      ],
       "transactions": [
         {
           "fecha": "2026-07-05",
@@ -6706,8 +6742,11 @@
       "issues": []
     },
     {
-      "name": "DARIO  SANMARTIN",
+      "name": "DARIO SANMARTIN",
       "sheet": "DARIO SANMARTIN",
+      "aliases": [
+        "DARIO  SANMARTIN"
+      ],
       "transactions": [
         {
           "fecha": "2025-06-08",
@@ -6811,6 +6850,7 @@
     {
       "name": "GLORIA RAMIREZ",
       "sheet": "GLORIA RAMIREZ",
+      "aliases": [],
       "transactions": [
         {
           "fecha": null,
@@ -7407,8 +7447,11 @@
       "issues": []
     },
     {
-      "name": "JOHANA MADRE COMUNITARIA",
+      "name": "JHOANA M.COMUNITARIA",
       "sheet": "JHOANA M.COMUNITARIA",
+      "aliases": [
+        "JOHANA MADRE COMUNITARIA"
+      ],
       "transactions": [
         {
           "fecha": "2024-02-27",
@@ -7497,6 +7540,7 @@
     {
       "name": "JUAN JOSE GOMEZ",
       "sheet": "JUAN JOSE GOMEZ",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-03-16",
@@ -7540,6 +7584,7 @@
     {
       "name": "JUAN JOSE VELEZ DTK",
       "sheet": "JUAN JOSE VELEZ DTK",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-03-10",
@@ -7658,6 +7703,7 @@
     {
       "name": "GLORIA TIA EFREN",
       "sheet": "GLORIA TIA EFREN",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-05-13",
@@ -7716,6 +7762,7 @@
     {
       "name": "HERMANA DE OLGUITA",
       "sheet": "HERMANA DE OLGUITA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-09-01",
@@ -7774,6 +7821,7 @@
     {
       "name": "JADER",
       "sheet": "JADER",
+      "aliases": [],
       "transactions": [],
       "totalCompras": 0,
       "totalAbonos": 0,
@@ -7786,6 +7834,7 @@
     {
       "name": "JENY JAIRA ARREDONDO",
       "sheet": "JENY JAIRA ARREDONDO",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-02-20",
@@ -7859,6 +7908,7 @@
     {
       "name": "JONATHAN ÑATO",
       "sheet": "JONATHAN ÑATO",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-03-26",
@@ -7947,6 +7997,7 @@
     {
       "name": "JHANET EMPRENDIMIENTO",
       "sheet": "JHANET EMPRENDIMIENTO",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2023-12-06",
@@ -8200,6 +8251,7 @@
     {
       "name": "KARIS INTER",
       "sheet": "KARIS INTER",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-12-20",
@@ -8376,8 +8428,11 @@
       "issues": []
     },
     {
-      "name": "KATERIN MAMA DE LIAM",
+      "name": "KATER MAMA LIAM",
       "sheet": "KATER MAMA LIAM",
+      "aliases": [
+        "KATERIN MAMA DE LIAM"
+      ],
       "transactions": [
         {
           "fecha": "2023-10-27",
@@ -9379,8 +9434,11 @@
       "issues": []
     },
     {
-      "name": "KAROL  TRANSITO",
+      "name": "KAROL",
       "sheet": "KAROL",
+      "aliases": [
+        "KAROL  TRANSITO"
+      ],
       "transactions": [
         {
           "fecha": "2024-12-21",
@@ -9557,8 +9615,11 @@
       "issues": []
     },
     {
-      "name": "KATE HERMANA MONICA",
+      "name": "KATE H MONI",
       "sheet": "KATE H MONI",
+      "aliases": [
+        "KATE HERMANA MONICA"
+      ],
       "transactions": [
         {
           "fecha": "2024-04-11",
@@ -9780,8 +9841,11 @@
       "issues": []
     },
     {
-      "name": "LAURA MARTINEZ",
+      "name": "LAURA PAYARES",
       "sheet": "LAURA PAYARES",
+      "aliases": [
+        "LAURA MARTINEZ"
+      ],
       "transactions": [
         {
           "fecha": "2026-03-10",
@@ -10048,8 +10112,11 @@
       "issues": []
     },
     {
-      "name": "LEIDY PACIFICO",
+      "name": "LEIDY PASIFICO",
       "sheet": "LEIDY PASIFICO",
+      "aliases": [
+        "LEIDY PACIFICO"
+      ],
       "transactions": [
         {
           "fecha": "2024-08-16",
@@ -10288,6 +10355,7 @@
     {
       "name": "LILIA MAMA DE KATE",
       "sheet": "LILIA MAMA DE KATE",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-01-02",
@@ -10481,6 +10549,7 @@
     {
       "name": "LINA BICHI",
       "sheet": "LINA BICHI",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-05-07",
@@ -10659,6 +10728,7 @@
     {
       "name": "LORENA PRIMA",
       "sheet": "LORENA PRIMA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-02-22",
@@ -10822,6 +10892,7 @@
     {
       "name": "LUCI DTK",
       "sheet": "LUCI DTK",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-07-15",
@@ -11285,6 +11356,7 @@
     {
       "name": "LUIS COSTE DTK",
       "sheet": "LUIS COSTE DTK",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-02-06",
@@ -11883,6 +11955,7 @@
     {
       "name": "PAOLA MOMPOS",
       "sheet": "PAOLA MOMPOS",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-11-09",
@@ -11909,8 +11982,11 @@
       "issues": []
     },
     {
-      "name": "LUISA VELAS",
+      "name": "LUISA ASECOLI",
       "sheet": "LUISA ASECOLI",
+      "aliases": [
+        "LUISA VELAS"
+      ],
       "transactions": [
         {
           "fecha": "2025-06-09",
@@ -11984,6 +12060,7 @@
     {
       "name": "LUZ DARY PITUNGA",
       "sheet": "LUZ DARY PITUNGA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-05-18",
@@ -12027,6 +12104,7 @@
     {
       "name": "LAURA PORTANOVA",
       "sheet": "LAURA PORTANOVA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2023-09-02",
@@ -12518,8 +12596,11 @@
       "issues": []
     },
     {
-      "name": "MANUELA AMIGA MANUEL",
+      "name": "MANUELA AMIGA DE MANUEL",
       "sheet": "MANUELA AMIGA DE MANUEL",
+      "aliases": [
+        "MANUELA AMIGA MANUEL"
+      ],
       "transactions": [
         {
           "fecha": "2024-02-22",
@@ -12998,6 +13079,7 @@
     {
       "name": "MANUELA CASINO",
       "sheet": "MANUELA CASINO",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-11-09",
@@ -13071,6 +13153,7 @@
     {
       "name": "MARIA EUGENIA SALAS",
       "sheet": "MARIA EUGENIA SALAS",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-04-20",
@@ -13144,6 +13227,7 @@
     {
       "name": "MARIAM DTK",
       "sheet": "MARIAM DTK",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-05-31",
@@ -13262,6 +13346,7 @@
     {
       "name": "MONA MANUALIDADES",
       "sheet": "MONA MANUALIDADES",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-03-15",
@@ -13530,6 +13615,7 @@
     {
       "name": "MONICA LOCAL",
       "sheet": "MONICA LOCAL",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-11-15",
@@ -13736,8 +13822,11 @@
       "issues": []
     },
     {
-      "name": "MERCEDES BINGO",
+      "name": "MERCEDES",
       "sheet": "MERCEDES",
+      "aliases": [
+        "MERCEDES BINGO"
+      ],
       "transactions": [
         {
           "fecha": "2023-12-11",
@@ -13916,6 +14005,7 @@
     {
       "name": "MARIANO DOSANTOS",
       "sheet": "MARIANO DOSANTOS",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-04-28",
@@ -13959,6 +14049,7 @@
     {
       "name": "NANIS",
       "sheet": "NANIS",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-03-31",
@@ -14167,6 +14258,7 @@
     {
       "name": "ROSALBA VIEJO",
       "sheet": "ROSALBA VIEJO",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-09-15",
@@ -14208,8 +14300,11 @@
       "issues": []
     },
     {
-      "name": "NERY VIP",
+      "name": "NERY",
       "sheet": "NERY",
+      "aliases": [
+        "NERY VIP"
+      ],
       "transactions": [
         {
           "fecha": "2024-09-08",
@@ -14958,6 +15053,7 @@
     {
       "name": "PATRICIA ALBEIRO",
       "sheet": "PATRICIA ALBEIRO",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-07-28",
@@ -15016,6 +15112,7 @@
     {
       "name": "PATRICIA CALDAS",
       "sheet": "PATRICIA CALDAS",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-02-11",
@@ -15434,6 +15531,7 @@
     {
       "name": "PAULA BINGO",
       "sheet": "PAULA BINGO",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-10-11",
@@ -15492,6 +15590,7 @@
     {
       "name": "PAULA MADRERA",
       "sheet": "PAULA MADRERA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": null,
@@ -15548,8 +15647,11 @@
       "issues": []
     },
     {
-      "name": "RAUL HERMANO DE SANDRA",
+      "name": "RAUL H SANDRA GUZMAN",
       "sheet": "RAUL H SANDRA GUZMAN",
+      "aliases": [
+        "RAUL HERMANO DE SANDRA"
+      ],
       "transactions": [
         {
           "fecha": "2025-11-05",
@@ -15593,6 +15695,7 @@
     {
       "name": "RUTH",
       "sheet": "RUTH",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-10-05",
@@ -15696,6 +15799,7 @@
     {
       "name": "SANDRA GUARNISQUI",
       "sheet": "SANDRA GUARNISQUI",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-12-18",
@@ -15844,6 +15948,7 @@
     {
       "name": "SANDRA GUZMAN",
       "sheet": "SANDRA GUZMAN",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-11-17",
@@ -16365,8 +16470,11 @@
       "issues": []
     },
     {
-      "name": "SANDRA  SANMARTIN",
+      "name": "SANDRA SANMARTIN",
       "sheet": "SANDRA SANMARTIN",
+      "aliases": [
+        "SANDRA  SANMARTIN"
+      ],
       "transactions": [],
       "totalCompras": 0,
       "totalAbonos": 0,
@@ -16377,8 +16485,11 @@
       "issues": []
     },
     {
-      "name": "CRISTIAN ESPOSO GIMENA",
+      "name": "CRISTIAN ESPOSO DE GIMENA",
       "sheet": "CRISTIAN ESPOSO DE GIMENA",
+      "aliases": [
+        "CRISTIAN ESPOSO GIMENA"
+      ],
       "transactions": [
         {
           "fecha": "2026-11-07",
@@ -16422,6 +16533,7 @@
     {
       "name": "SEBASTIAN SANVI",
       "sheet": "SEBASTIAN SANVI",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-03-10",
@@ -16585,6 +16697,7 @@
     {
       "name": "SONYA",
       "sheet": "SONYA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-10-11",
@@ -16628,6 +16741,7 @@
     {
       "name": "TATIANA VERGARA",
       "sheet": "TATIANA VERGARA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2026-04-24",
@@ -16701,6 +16815,7 @@
     {
       "name": "TATIANA VIP",
       "sheet": "TATIANA VIP",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-02-04",
@@ -17089,6 +17204,7 @@
     {
       "name": "VANESA BETANCUR",
       "sheet": "VANESA BETANCUR",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-03-24",
@@ -17672,6 +17788,7 @@
     {
       "name": "VERONICA CALDAS",
       "sheet": "VERONICA CALDAS",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-12-29",
@@ -17743,8 +17860,11 @@
       "issues": []
     },
     {
-      "name": "VICTOR MANUEL BETANCUR",
+      "name": "VICTOR MANUEL",
       "sheet": "VICTOR MANUEL",
+      "aliases": [
+        "VICTOR MANUEL BETANCUR"
+      ],
       "transactions": [
         {
           "fecha": "2024-12-20",
@@ -18251,8 +18371,11 @@
       "issues": []
     },
     {
-      "name": "YAMIRLEY AMIGA ANGELA VIP",
+      "name": "YAMIRLEY AMIGA DE ANGELA VIP",
       "sheet": "YAMIRLEY AMIGA DE ANGELA VIP",
+      "aliases": [
+        "YAMIRLEY AMIGA ANGELA VIP"
+      ],
       "transactions": [
         {
           "fecha": "2025-02-11",
@@ -19061,6 +19184,7 @@
     {
       "name": "YOLANDA SANMARTIN",
       "sheet": "YOLANDA SANMARTIN",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2025-04-20",
@@ -19147,8 +19271,11 @@
       "issues": []
     },
     {
-      "name": "YULET AMIGA DE NERY",
+      "name": "YULET AMIGA NERY",
       "sheet": "YULET AMIGA NERY",
+      "aliases": [
+        "YULET AMIGA DE NERY"
+      ],
       "transactions": [
         {
           "fecha": "2026-06-23",
@@ -19265,8 +19392,11 @@
       "issues": []
     },
     {
-      "name": "YULIANA DTK",
+      "name": "YULIANA DTK FABRICA",
       "sheet": "YULIANA DTK FABRICA",
+      "aliases": [
+        "YULIANA DTK"
+      ],
       "transactions": [
         {
           "fecha": "2026-07-10",
@@ -19370,6 +19500,7 @@
     {
       "name": "YURY MERKASA",
       "sheet": "YURY MERKASA",
+      "aliases": [],
       "transactions": [
         {
           "fecha": "2024-03-18",

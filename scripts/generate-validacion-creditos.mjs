@@ -85,7 +85,10 @@ for (const sheetName of workbook.SheetNames) {
     else if (key.includes('negocio')) columnMap.negocio = index
   })
 
-  const name = cleanText(nonEmptyRows[0].find((value) => typeof value === 'string' && cleanText(value))) || cleanText(sheetName)
+  // The worksheet name is the canonical client identity. Titles inside a sheet
+  // are often nicknames or labels and must never create a second person.
+  const name = cleanText(sheetName)
+  const sheetTitle = cleanText(nonEmptyRows[0].find((value) => typeof value === 'string' && cleanText(value)))
   const transactions = []
   const issues = []
   let previousRecordedBalance = 0
@@ -175,6 +178,7 @@ for (const sheetName of workbook.SheetNames) {
   people.push({
     name,
     sheet: sheetName.trim(),
+    aliases: sheetTitle && normalizeKey(sheetTitle) !== normalizeKey(name) ? [sheetTitle] : [],
     transactions,
     totalCompras,
     totalAbonos,
