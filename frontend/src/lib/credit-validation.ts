@@ -101,6 +101,7 @@ export function mergeValidationCreditMovements(
   movements: SavedValidationCreditMovement[],
   clientNames: string[] = [],
   deletedTransactions: ReadonlySet<string> = new Set(),
+  includeImportedPortfolio = true,
 ): ValidationCreditPerson[] {
   const grouped = new Map<string, SavedValidationCreditMovement[]>()
   movements.forEach((movement) => {
@@ -111,7 +112,9 @@ export function mergeValidationCreditMovements(
   })
 
   const peopleByIdentity = new Map<string, ValidationCreditPerson>()
-  validationCreditPortfolio.forEach((person) => peopleByIdentity.set(normalizeClientIdentity(person.sheet), person))
+  if (includeImportedPortfolio) {
+    validationCreditPortfolio.forEach((person) => peopleByIdentity.set(normalizeClientIdentity(person.sheet), person))
+  }
   clientNames.forEach((rawName) => {
     const name = rawName.trim()
     const identity = normalizeClientIdentity(name)

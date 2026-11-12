@@ -30,11 +30,35 @@ async function makePdf(clientName: string, transactions: WorkbookRow[], options?
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
   const pageSize = 23
   const pages = Math.max(1, Math.ceil(transactions.length / pageSize))
-  const ordered = [...transactions].sort((a, b) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA))
-  const totalCharges = ordered.filter((row) => !reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
-  const totalPayments = ordered.filter((row) => reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
-  const totalRefunds = ordered.filter((row) => safeText(row.TIPO).toLowerCase() === 'devolucion').reduce((total, row) => total + Number(String(row.COMENTARIO ?? '').match(/REEMBOLSO:(\d+(?:\.\d+)?)/i)?.[1] ?? 0), 0)
+  const byDate = (a: WorkbookRow, b: WorkbookRow) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA)
+    || rowCreatedAtValue(a) - rowCreatedAtValue(b)
+  const orderedByDate = [...transactions].sort(byDate)
+  const historical = options ? orderedByDate.filter((row) => rowCreatedAtValue(row) <= options.openingDate) : []
+  const sinceOpening = options ? orderedByDate.filter((row) => rowCreatedAtValue(row) > options.openingDate) : orderedByDate
+  const ordered = options ? [...historical, ...sinceOpening] : orderedByDate
+  const totalCharges = sinceOpening.filter((row) => !reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const totalPayments = sinceOpening.filter((row) => reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const totalRefunds = sinceOpening.filter((row) => safeText(row.TIPO).toLowerCase() === 'devolucion').reduce((total, row) => total + Number(String(row.COMENTARIO ?? '').match(/REEMBOLSO:(\d+(?:\.\d+)?)/i)?.[1] ?? 0), 0)
   const finalBalance = (options?.openingBalance ?? 0) + totalCharges - totalPayments
+  const lineBalances = new Map<WorkbookRow, number>()
+  if (options) {
+    let historicalBalance = options.openingBalance - historical.reduce((total, row) => total + movementDelta(row), 0)
+    historical.forEach((row) => {
+      historicalBalance += movementDelta(row)
+      lineBalances.set(row, historicalBalance)
+    })
+    let currentBalance = options.openingBalance
+    sinceOpening.forEach((row) => {
+      currentBalance += movementDelta(row)
+      lineBalances.set(row, currentBalance)
+    })
+  } else {
+    let balance = 0
+    ordered.forEach((row) => {
+      balance += movementDelta(row)
+      lineBalances.set(row, balance)
+    })
+  }
   const createdAt = new Date().toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })
   let logo: Awaited<ReturnType<typeof pdf.embedPng>> | null = null
   try {
@@ -101,14 +125,12 @@ async function makePdf(clientName: string, transactions: WorkbookRow[], options?
     draw('CARGO', columns[2] + 8, y, 7, bold, rgb(1, 1, 1))
     draw('ABONO', columns[3] + 8, y, 7, bold, rgb(1, 1, 1))
     draw('SALDO', columns[4] + 8, y, 7, bold, rgb(1, 1, 1))
-    let balance = (options?.openingBalance ?? 0) + ordered.slice(0, pageIndex * pageSize).reduce((total, row) => total + (reducesDebt(row.TIPO) ? -Number(row.VALOR ?? 0) : Number(row.VALOR ?? 0)), 0)
     const chunk = ordered.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize)
     chunk.forEach((row, index) => {
       const rowY = y - 24 - index * 19
       if (index % 2 === 0) page.drawRectangle({ x: 38, y: rowY - 5, width: 519, height: 19, color: rgb(0.97, 0.98, 0.97) })
       const payment = reducesDebt(row.TIPO)
       const amount = Number(row.VALOR ?? 0)
-      balance += payment ? -amount : amount
       const product = row.CODIGO ? `${row.CODIGO} x${row.CANT ?? 1} ${row.DETALLE ?? ''}` : row.COMENTARIO ?? (payment ? 'Abono recibido' : 'Credito')
       const refund = Number(String(row.COMENTARIO ?? '').match(/REEMBOLSO:(\d+(?:\.\d+)?)/i)?.[1] ?? 0)
       const refundNote = refund > 0 ? ` | Reembolso $${cop.format(refund)}` : ''
@@ -117,7 +139,7 @@ async function makePdf(clientName: string, transactions: WorkbookRow[], options?
       draw(description, columns[1] + 7, rowY, 7.5)
       draw(payment ? '-' : cop.format(amount), columns[2] + 7, rowY, 7.5)
       draw(payment ? cop.format(amount) : '-', columns[3] + 7, rowY, 7.5)
-      draw(cop.format(balance), columns[4] + 7, rowY, 7.5, bold, green)
+      draw(cop.format(lineBalances.get(row) ?? 0), columns[4] + 7, rowY, 7.5, bold, green)
     })
     const footerY = 54
     page.drawLine({ start: { x: 38, y: footerY + 15 }, end: { x: 557, y: footerY + 15 }, thickness: 0.7, color: rgb(0.82, 0.87, 0.82) })
@@ -162,4 +184,14 @@ function rowDateValue(value: unknown): number {
   if (dmy) return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1])).getTime()
   const timestamp = Date.parse(raw)
   return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function rowCreatedAtValue(row: WorkbookRow): number {
+  const timestamp = Date.parse(String(row.created_at ?? row.updated_at ?? ''))
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function movementDelta(row: WorkbookRow): number {
+  const amount = Number(row.VALOR ?? 0)
+  return reducesDebt(row.TIPO) ? -amount : amount
 }
