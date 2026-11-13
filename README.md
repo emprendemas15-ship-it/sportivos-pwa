@@ -2,9 +2,9 @@
 
 Aplicación web progresiva basada en las hojas visibles de `SPORTIVOS (1) (1).xlsm`. La PWA incluye `MENU`, `INVENTARIO_PT`, `COSTOS_NO_PRODUCIDOS`, `ENTRADAS`, `CLIENTES`, `CREDITOS`, `VENTAS`, `GASTOS` y un único módulo `BALANCE` con historial mensual. `BALANCE SEPTIEMBRE` se muestra como el cierre histórico de septiembre, no como otro módulo.
 
-También se incorporó el módulo `VALIDACION CREDITOS`, alimentado por `CREDITOS (2).xlsm`, con migración por persona, compras, abonos, saldos pendientes y detalle individual por cliente. La auditoría de hojas, formularios, columnas y cálculos está en [docs/excel-audit.md](./docs/excel-audit.md).
+También se incorporó el módulo `VALIDACION CREDITOS`, cuyo historial base se toma de los movimientos actuales de la tabla `CREDITOS` en Supabase, no del Excel. La auditoría de hojas, formularios, columnas y cálculos está en [docs/excel-audit.md](./docs/excel-audit.md).
 
-La ficha conserva el historial importado y permite agregar o eliminar créditos y abonos por persona. Muestra la categoría de negocio y recalcula los saldos posteriores cuando se elimina un movimiento. El botón `Historial PDF` permite elegir una persona y descargar el historial completo, con todos sus movimientos, totales y saldo; los códigos de crédito se seleccionan desde el inventario. Los movimientos nuevos se guardan aparte de la tabla del módulo `CREDITOS`, en `public.validacion_creditos_movimientos`; para habilitar el formulario y sus acciones, ejecuta una sola vez [la migración de Supabase](./supabase/migrations/20261102173000_validacion_creditos_movimientos.sql) desde el SQL Editor del proyecto Supabase. Como la PWA es pública y no requiere inicio de sesión, esa tabla permite lectura, inserción y eliminación públicas.
+La ficha muestra en solo lectura el historial real de CREDITOS y permite agregar o eliminar movimientos propios de VALIDACION CREDITOS. El botón `Historial PDF` descarga el historial visible de una persona, con sus movimientos, totales y saldo. Los movimientos nuevos se guardan aparte de la tabla del módulo `CREDITOS`, en `public.validacion_creditos_movimientos`, y no alteran CLIENTES ni CREDITOS; para habilitar el formulario y sus acciones, ejecuta una sola vez [la migración de Supabase](./supabase/migrations/20261102173000_validacion_creditos_movimientos.sql) desde el SQL Editor del proyecto Supabase. Como la PWA es pública y no requiere inicio de sesión, esa tabla permite lectura, inserción y eliminación públicas.
 
 ## Desarrollo y validación
 
@@ -21,7 +21,7 @@ npm run lint --workspace=frontend
 
 Los registros de las siete hojas de datos se sincronizan con Supabase. El historial de balances se guarda en la tabla `balance` para que los cierres se compartan entre dispositivos. La importación desde el libro se prepara con `scripts/migrate-excel-to-supabase.ps1`; `-Preview` valida cantidades y columnas sin escribir datos.
 
-En cada tabla de datos se puede borrar un registro con confirmación; al sincronizar de nuevo se recalculan las existencias y los saldos derivados. En VALIDACION CREDITOS solo se pueden borrar los movimientos nuevos; el historial importado del Excel permanece intacto. Los balances ya guardados se conservan como cierres históricos y se actualizan al generar y guardar otra vez el periodo.
+En cada tabla de datos se puede borrar un registro con confirmación; al sincronizar de nuevo se recalculan las existencias y los saldos derivados. En VALIDACION CREDITOS solo se pueden borrar los movimientos nuevos; los registros que provienen de CREDITOS son de solo lectura y se administran desde ese módulo. Los balances ya guardados se conservan como cierres históricos y se actualizan al generar y guardar otra vez el periodo.
 
 La publicación está configurada en `.github/workflows/pages.yml`. GitHub Actions necesita los secretos `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY`. El archivo local `frontend/.env.local` no se sube al repositorio.
 

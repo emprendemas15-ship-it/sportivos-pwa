@@ -1,4 +1,4 @@
-import validationCreditDataRaw from '../data/validacion-creditos.json'
+import type { WorkbookRow } from './workbook'
 
 export type ValidationCreditTransaction = {
   savedMovementId?: string
@@ -33,24 +33,6 @@ export type ValidationCreditPerson = {
   issues: Array<{ fecha: string | null; detalle: string | null; issue: string }>
 }
 
-export type ValidationCreditDataset = {
-  generatedAt: string
-  sourceWorkbook?: string
-  sourceAsOf?: string
-  summary: {
-    totalPersonas: number
-    totalCompras: number
-    totalAbonos: number
-    totalDescuentos: number
-    carteraPendiente: number
-    personasConSaldoPendiente: number
-    personasAlDia: number
-    registros: number
-    inconsistencias: number
-  }
-  people: ValidationCreditPerson[]
-}
-
 export type SavedValidationCreditMovement = {
   id: string
   request_id: string
@@ -69,39 +51,72 @@ export type SavedValidationCreditMovement = {
   created_at: string
 }
 
-const validationCreditData = validationCreditDataRaw as ValidationCreditDataset
-
-export const validationCreditPortfolio = validationCreditData.people
-export const validationCreditSourceWorkbook = validationCreditData.sourceWorkbook ?? 'CREDITOS.xlsm'
-export const validationCreditSourceAsOf = Date.parse(validationCreditData.sourceAsOf ?? validationCreditData.generatedAt)
-
 const clientIdentityKey = (value: string): string => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('es')
-const clientIdentityAliases = new Map<string, string>()
-validationCreditPortfolio.forEach((person) => {
-  const canonical = clientIdentityKey(person.sheet)
-  clientIdentityAliases.set(clientIdentityKey(person.name), canonical)
-  clientIdentityAliases.set(canonical, canonical)
-  person.aliases?.forEach((alias) => clientIdentityAliases.set(clientIdentityKey(alias), canonical))
-})
+export const validationCreditClientAliases: Array<[string, string]> = [
+  ['ANDRES MOMPOS', 'ANDRES MOMPOZ'],
+  ['ANGIE SODEXO', 'ANGIE RIONEGRO'],
+  ['BIBIANA MEMFIS', 'BIBIANA GALLETAS'],
+  ['CLAUDIA CASTAÑO', 'CLAUDIA CASTAÑO'],
+  ['DANY PAJARA', 'DANY DTK'],
+  ['ESTEFANIA J Y G', 'ESTEFANIA JYG'],
+  ['FABIO LEGUMBRERIA', 'FABIO LEGUMBRERIA'],
+  ['DARIO SANMARTIN', 'DARIO SANMARTIN'],
+  ['JOHANA MADRE COMUNITARIA', 'JHOANA M.COMUNITARIA'],
+  ['KATERIN MAMA DE LIAM', 'KATER MAMA LIAM'],
+  ['KAROL TRANSITO', 'KAROL'],
+  ['KATE HERMANA MONICA', 'KATE H MONI'],
+  ['LAURA MARTINEZ', 'LAURA PAYARES'],
+  ['LEIDY PACIFICO', 'LEIDY PASIFICO'],
+  ['LUISA VELAS', 'LUISA ASECOLI'],
+  ['MANUELA AMIGA MANUEL', 'MANUELA AMIGA DE MANUEL'],
+  ['MERCEDES BINGO', 'MERCEDES'],
+  ['NERY VIP', 'NERY'],
+  ['RAUL HERMANO DE SANDRA', 'RAUL H SANDRA GUZMAN'],
+  ['SANDRA SANMARTIN', 'SANDRA SANMARTIN'],
+  ['CRISTIAN ESPOSO GIMENA', 'CRISTIAN ESPOSO DE GIMENA'],
+  ['VICTOR MANUEL BETANCUR', 'VICTOR MANUEL'],
+  ['YAMIRLEY AMIGA ANGELA VIP', 'YAMIRLEY AMIGA DE ANGELA VIP'],
+  ['YULET AMIGA DE NERY', 'YULET AMIGA NERY'],
+  ['YULIANA DTK', 'YULIANA DTK FABRICA'],
+  ['YARMILE AMIGA ANGELA', 'YAMIRLEY AMIGA DE ANGELA VIP'],
+  ['YAMIRLE AMIGA DE ANGELA', 'YAMIRLEY AMIGA DE ANGELA VIP'],
+  ['YAMIRLEY AMIGA ANGELA VIP', 'YAMIRLEY AMIGA DE ANGELA VIP'],
+  ['CRISTIAN ESPOSO GIMENA', 'CRISTIAN ESPOSO DE GIMENA'],
+  ['ANGY RIONEGRO', 'ANGIE RIONEGRO'],
+  ['CAROLINA FREISER', 'CAROLINA FRASSER'],
+  ['ESTEFA JYG', 'ESTEFANIA JYG'],
+  ['LEYDI PACIFICO', 'LEIDY PASIFICO'],
+  ['LEIDI PACIFICO', 'LEIDY PASIFICO'],
+  ['LILIANA MAMA DE KATE', 'LILIA MAMA DE KATE'],
+  ['MANUELA AMIGA MANUEL', 'MANUELA AMIGA DE MANUEL'],
+  ['YULETH AMIGA DE NERY', 'YULET AMIGA NERY'],
+  ['KARIS INTER EJECUTIVA', 'KARIS INTER'],
+  ['KATE LIAM', 'KATER MAMA LIAM'],
+  ['RAUL HERMANO SANDRA', 'RAUL H SANDRA GUZMAN'],
+]
+const clientIdentityAliases = new Map(validationCreditClientAliases.map(([alias, canonical]) => [
+  clientIdentityKey(alias),
+  clientIdentityKey(canonical),
+]))
 
-export function getValidationCreditSummary() {
-  return validationCreditData.summary
-}
-
-export function getValidationCreditPeople(search: string = '') {
-  const needle = search.trim().toLowerCase()
-  if (!needle) return validationCreditPortfolio
-  return validationCreditPortfolio.filter((person) => {
-    const haystack = [person.name, person.sheet, person.transactions.map((row) => row.codigo ?? '').join(' ')].join(' ').toLowerCase()
-    return haystack.includes(needle)
-  })
+export function getValidationCreditSummary(people: ValidationCreditPerson[]) {
+  return {
+    totalPersonas: people.length,
+    totalCompras: people.reduce((total, person) => total + person.totalCompras, 0),
+    totalAbonos: people.reduce((total, person) => total + person.totalAbonos, 0),
+    totalDescuentos: people.reduce((total, person) => total + person.totalDescuentos, 0),
+    carteraPendiente: people.reduce((total, person) => total + Math.max(0, person.saldoPendiente), 0),
+    personasConSaldoPendiente: people.filter((person) => person.saldoPendiente > 0).length,
+    personasAlDia: people.filter((person) => person.saldoPendiente <= 0).length,
+    registros: people.reduce((total, person) => total + person.transactions.length, 0),
+    inconsistencias: people.reduce((total, person) => total + person.issues.length, 0),
+  }
 }
 
 export function mergeValidationCreditMovements(
   movements: SavedValidationCreditMovement[],
-  clientNames: string[] = [],
+  sourcePeople: ValidationCreditPerson[],
   deletedTransactions: ReadonlySet<string> = new Set(),
-  includeImportedPortfolio = true,
 ): ValidationCreditPerson[] {
   const grouped = new Map<string, SavedValidationCreditMovement[]>()
   movements.forEach((movement) => {
@@ -112,13 +127,10 @@ export function mergeValidationCreditMovements(
   })
 
   const peopleByIdentity = new Map<string, ValidationCreditPerson>()
-  if (includeImportedPortfolio) {
-    validationCreditPortfolio.forEach((person) => peopleByIdentity.set(normalizeClientIdentity(person.sheet), person))
-  }
-  clientNames.forEach((rawName) => {
-    const name = rawName.trim()
-    const identity = normalizeClientIdentity(name)
-    if (!identity || peopleByIdentity.has(identity)) return
+  sourcePeople.forEach((person) => peopleByIdentity.set(normalizeClientIdentity(person.sheet), person))
+  grouped.forEach((records, identity) => {
+    if (peopleByIdentity.has(identity) || records.length === 0) return
+    const name = records[0].person_sheet
     peopleByIdentity.set(identity, {
       name,
       sheet: name,
@@ -136,7 +148,7 @@ export function mergeValidationCreditMovements(
   return [...peopleByIdentity.values()].map((sourcePerson) => {
     const sourceKeys = getValidationCreditTransactionKeys(sourcePerson.sheet, sourcePerson.transactions)
     const sourceTransactions = sourcePerson.transactions
-      .filter((_, index) => !deletedTransactions.has(sourceKeys[index]))
+      .filter((transaction, index) => Boolean(transaction.sourceCreditId) || !deletedTransactions.has(sourceKeys[index]))
     const sourceDelta = sourcePerson.transactions.reduce((total, transaction) => total + (
       transaction.tipo === 'ABONO' ? -transaction.abona
         : transaction.tipo === 'DEVOLUCION' ? -transaction.total
@@ -145,8 +157,12 @@ export function mergeValidationCreditMovements(
     const openingBalance = sourcePerson.saldoPendiente - sourceDelta
     let sourceBalance = openingBalance
     const recalculatedSourceTransactions = sourcePerson.transactions.map((transaction, index) => ({ transaction, key: sourceKeys[index] }))
-      .filter(({ key }) => !deletedTransactions.has(key))
+      .filter(({ transaction, key }) => Boolean(transaction.sourceCreditId) || !deletedTransactions.has(key))
       .map(({ transaction, key }) => {
+      if (transaction.sourceCreditId) {
+        sourceBalance = transaction.debe
+        return { ...transaction, sourceTransactionKey: key }
+      }
       sourceBalance += transaction.tipo === 'ABONO' ? -transaction.abona
         : transaction.tipo === 'DEVOLUCION' ? -transaction.total
           : transaction.total || transaction.valor
@@ -226,6 +242,62 @@ export function mergeValidationCreditMovements(
   })
 }
 
+export function getCreditHistoryPeople(rows: WorkbookRow[]): ValidationCreditPerson[] {
+  const peopleByIdentity = new Map<string, ValidationCreditPerson>()
+  rows.forEach((row) => {
+    const name = String(row.NOMBRE ?? '').trim()
+    const type = getCreditHistoryType(row.TIPO)
+    if (!name || !type) return
+    const identity = normalizeClientIdentity(name)
+    const person: ValidationCreditPerson = peopleByIdentity.get(identity) ?? {
+      name,
+      sheet: name,
+      transactions: [],
+      totalCompras: 0,
+      totalAbonos: 0,
+      totalDescuentos: 0,
+      saldoPendiente: 0,
+      ultimoMovimiento: null,
+      estado: 'AL_DIA',
+      issues: [],
+    }
+    const amount = finiteNumber(row.VALOR)
+    const payment = type === 'ABONO' ? amount : 0
+    const total = type === 'COMPRA' || type === 'DEVOLUCION' ? amount : 0
+    const movementDelta = type === 'ABONO' ? -payment : type === 'DEVOLUCION' ? -total : total
+    const recordedDebt = row.DEUDA !== null && row.DEUDA !== undefined && row.DEUDA !== ''
+      ? Number(row.DEUDA)
+      : Number.NaN
+    const previousDebt = person.transactions[person.transactions.length - 1]?.debe ?? person.saldoPendiente
+    const balance = Number.isFinite(recordedDebt) ? recordedDebt : previousDebt + movementDelta
+    const date = String(row.FECHA ?? '').slice(0, 10) || null
+    const transaction: ValidationCreditTransaction = {
+      sourceCreditId: String(row.id ?? `${identity}:${person.transactions.length}`),
+      fecha: date,
+      codigo: stringValue(row.CODIGO),
+      detalle: stringValue(row.DETALLE),
+      cantidad: finiteNumber(row.CANT),
+      valor: finiteNumber(row.PRECIO),
+      descuento: finiteNumber(row.DESCUENTO),
+      total,
+      abona: payment,
+      debe: balance,
+      tieneDebe: true,
+      negocio: stringValue(row.NEGOCIO),
+      tipo: type,
+    }
+    person.transactions.push(transaction)
+    person.saldoPendiente = balance
+    if (type === 'COMPRA') person.totalCompras += total
+    if (type === 'ABONO') person.totalAbonos += payment
+    person.totalDescuentos += transaction.descuento
+    if (date && (!person.ultimoMovimiento || date > person.ultimoMovimiento)) person.ultimoMovimiento = date
+    person.estado = balance > 0 ? 'PENDIENTE' : 'AL_DIA'
+    peopleByIdentity.set(identity, person)
+  })
+  return [...peopleByIdentity.values()]
+}
+
 export function getValidationCreditTransactionKeys(personSheet: string, transactions: ValidationCreditTransaction[]): string[] {
   const occurrenceCounts = new Map<string, number>()
   return transactions.map((transaction) => {
@@ -243,26 +315,7 @@ export function getValidationCreditTransactionKeys(personSheet: string, transact
 
 function normalizeClientIdentity(value: string): string {
   const identity = clientIdentityKey(value)
-  const aliases: Record<string, string> = {
-    'yarmile amiga angela': 'yamirley amiga de angela vip',
-    'yamirle amiga de angela': 'yamirley amiga de angela vip',
-    'yamirley amiga angela vip': 'yamirley amiga de angela vip',
-    'cristian esposo gimena': 'cristian esposo de gimena',
-    'angy rionegro': 'angie rionegro',
-    'carolina freiser': 'carolina frasser',
-    'estefa jyg': 'estefania jyg',
-    'johana madre comunitaria': 'jhoana m.comunitaria',
-    'leydi pacifico': 'leidy pasifico',
-    'liliana mama de kate': 'lilia mama de kate',
-    'manuela amiga manuel': 'manuela amiga de manuel',
-    'yuleth amiga de nery': 'yulet amiga nery',
-    'yulet amiga de nery': 'yulet amiga nery',
-    'karis inter ejecutiva': 'karis inter',
-    'kate liam': 'kater mama liam',
-    'raul hermano sandra': 'raul h sandra guzman',
-  }
-  const normalized = aliases[identity] ?? identity
-  return clientIdentityAliases.get(normalized) ?? clientIdentityAliases.get(identity) ?? normalized
+  return clientIdentityAliases.get(identity) ?? identity
 }
 
 function validationTransactionKey(transaction: ValidationCreditTransaction): string {
@@ -279,4 +332,22 @@ function savedMovementKey(movement: SavedValidationCreditMovement): string {
     normalizeClientIdentity(movement.code ?? ''), Number(movement.quantity ?? 0), Number(movement.unit_value ?? 0),
     Number(movement.discount ?? 0), Number(movement.total ?? 0), Number(movement.payment_amount ?? 0),
   ].join('|')
+}
+
+function getCreditHistoryType(value: unknown): ValidationCreditTransaction['tipo'] | null {
+  const type = normalizeClientIdentity(String(value ?? ''))
+  if (type === 'abono') return 'ABONO'
+  if (type === 'devolucion') return 'DEVOLUCION'
+  if (type === 'credito') return 'COMPRA'
+  return null
+}
+
+function finiteNumber(value: unknown): number {
+  const parsed = Number(value ?? 0)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function stringValue(value: unknown): string | null {
+  const text = String(value ?? '').trim()
+  return text || null
 }
