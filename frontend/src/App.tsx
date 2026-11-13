@@ -811,6 +811,19 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
     }
   }, [people, summary])
   const selectedPerson = allPeople.find((person) => person.sheet === form.personSheet)
+  const personCreditCodeOptions = useMemo(() => {
+    const optionsByCode = new Map<string, CodeSearchOption>()
+    selectedPerson?.transactions.forEach((transaction) => {
+      const code = transaction.codigo?.trim()
+      if (!transaction.sourceCreditId || transaction.tipo !== 'COMPRA' || !code) return
+      optionsByCode.set(normalizeCode(code), {
+        code,
+        detail: transaction.detalle ?? '',
+        hint: 'Usado en CREDITOS',
+      })
+    })
+    return [...optionsByCode.values()].sort((a, b) => a.code.localeCompare(b.code, 'es', { sensitivity: 'base', numeric: true }))
+  }, [selectedPerson])
   const matchingFormPeople = useMemo(() => {
     const needle = personQuery.trim().toLocaleLowerCase('es')
     return allPeople.filter((person) => !needle || `${person.name} ${person.sheet}`.toLocaleLowerCase('es').includes(needle))
@@ -1189,7 +1202,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
         </div>
         <fieldset className="validation-credit-type"><legend>Tipo de movimiento</legend><label><input type="radio" name="validation-credit-type" checked={form.type === 'CREDITO'} onChange={() => setForm((current) => ({ ...current, type: 'CREDITO' }))} /> Crédito</label><label><input type="radio" name="validation-credit-type" checked={form.type === 'ABONO'} onChange={() => setForm((current) => ({ ...current, type: 'ABONO' }))} /> Abono</label></fieldset>
         {form.type === 'CREDITO' ? <div className="validation-credit-form-grid">
-          <label>Código del producto<input required value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} /></label>
+          <label>Código de esta persona en CREDITOS<SearchableCodeInput value={form.code} options={personCreditCodeOptions} onChange={(value) => setForm((current) => ({ ...current, code: value }))} onSelect={(option) => setForm((current) => ({ ...current, code: option.code, detail: option.detail }))} allowCustom required placeholder={personCreditCodeOptions.length ? 'Escribe o busca un código del historial' : 'Escribe un código'} ariaLabel={`Buscar código en CREDITOS de ${selectedPerson?.sheet ?? 'la persona'}`} /></label>
           <label>Descripción<input required value={form.detail} onChange={(event) => setForm((current) => ({ ...current, detail: event.target.value }))} /></label>
           <label>Cantidad<input required type="number" min="0.01" step="any" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
           <label>Valor unitario<input required type="number" min="1" step="1" value={form.unitValue} onChange={(event) => setForm((current) => ({ ...current, unitValue: event.target.value }))} /></label>
