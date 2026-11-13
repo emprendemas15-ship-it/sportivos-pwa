@@ -1875,8 +1875,9 @@ function calculateBalance(data: Record<ModuleKey, WorkbookRow[]>, month: number,
   const otherCollections = paymentRows.filter((item) => paymentCategory(item.method) === 'other').reduce((total, item) => total + Number(item.row[item.amountKey] ?? 0), 0)
   const totalCollections = cashSales + transferSales + otherCollections
   const creditsGranted = sum(credits.filter((row) => isCreditType(row.TIPO)), 'VALOR')
-  const payments = sum(credits.filter((row) => row.TIPO === 'Abono'), 'VALOR')
-  const receivables = Math.max(0, data.CREDITOS.reduce((total, row) => total + (isCreditType(row.TIPO) ? Number(row.VALOR ?? 0) : isAbonoType(row.TIPO) || isReturnType(row.TIPO) ? -Number(row.VALOR ?? 0) : 0), 0))
+  const payments = sum(credits.filter((row) => isAbonoType(row.TIPO)), 'VALOR')
+  const receivables = getClientLedgerPeople(data)
+    .reduce((total, person) => total + Math.max(0, person.saldoPendiente), 0)
   const nonProducedCodes = new Set(data.COSTOS_NO_PRODUCIDOS.map((row) => String(row.CODIGO ?? '').trim().toLowerCase()).filter(Boolean))
   const nonProducedEntries = entries.filter((row) => nonProducedCodes.has(String(row.CODIGO ?? '').trim().toLowerCase()))
   const codedExpenses = expenses.filter((row) => Boolean(getExpenseCode(row, data)))
@@ -1950,7 +1951,7 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
     })
     if (prior) setOpeningFund(prior.nextFund)
   }, [history, month, year])
-  const report = generated?.month === month && generated.year === year ? generated : calculateBalance(data, month, year, openingFund, withdrawalPercent / 100)
+  const report = calculateBalance(data, month, year, openingFund, withdrawalPercent / 100)
   const hasCurrentReport = generated?.month === month && generated.year === year
   const title = `ESTADO DE RESULTADOS Y FLUJO DE CAJA: ${monthLabels[month - 1]?.toUpperCase()} ${year}`
   function balanceInputError() {
@@ -2032,7 +2033,7 @@ function ReportView({ data }: { data: Record<ModuleKey, WorkbookRow[]> }) {
       <BalanceSection title="3. COSTOS Y GASTOS OPERATIVOS" rows={[["(-) Costos de Producción (Materia Prima)", report.productionCosts], ["(-) Costos No Producidos (Total Compras)", report.nonProducedCosts], ["    + De los cuales: Costos Fijos", report.fixedCosts], ["(-) Gastos Operativos (Viáticos)", report.operatingExpenses], ["(-) Reembolsos entregados por devoluciones", report.refunds], ["(=) TOTAL EGRESOS DEL MES", report.totalExpenses, 'peach'], ["(=) CAJA RESTANTE TRAS PAGAR EGRESOS", report.remainingCash, 'blue']]} />
       <BalanceSection title="4. RESULTADO FINANCIERO Y DISTRIBUCIÓN" rows={[["(+) Total Recaudo Generado Este Mes", report.totalCollections], [`(-) Retiro Sugerido (${number.format(report.withdrawalRate * 100)}% del Recaudo)`, report.suggestedWithdrawal, 'yellow'], ["(=) NUEVO FONDO / CAPITAL PRÓXIMO MES", report.nextFund, 'blue']]} />
       <p className="balance-before-withdrawal"><span>Dinero que debo tener antes del retiro:</span><strong>{currency.format(report.remainingCash)}</strong></p>
-      <p className="balance-note">El balance incluye las compras registradas en ENTRADAS del mes. GASTOS se separa entre materia prima codificada y gastos operativos sin código.</p></section> : <section className="balance-empty"><strong>Balance sin generar</strong><span>Elige el mes y presiona “Generar balance” para ver el resumen; después puedes guardarlo.</span></section>}
+      <p className="balance-note">El saldo por cobrar se toma de la última DEUDA de cada persona en CREDITOS. El balance incluye las compras registradas en ENTRADAS del mes y separa los gastos entre materia prima codificada y gastos operativos sin código.</p></section> : <section className="balance-empty"><strong>Balance sin generar</strong><span>Elige el mes y presiona “Generar balance” para ver el resumen; después puedes guardarlo.</span></section>}
     <section className="balance-history"><div className="section-heading"><div><h2>Balances guardados</h2><p>Los cierres quedan dentro de este mismo módulo, uno por mes.</p></div></div><div className="table-wrap"><table><thead><tr><th>PERIODO</th><th>FONDO INICIAL</th><th>TOTAL RECAUDO</th><th>RETIRO SUGERIDO</th><th>FONDO PRÓXIMO MES</th><th>ACCIONES</th></tr></thead><tbody>{history.map((item) => <tr key={`${item.year}-${item.month}`}><td>{monthLabels[item.month - 1]} {item.year}</td><td>{currency.format(item.openingFund)}</td><td>{currency.format(item.totalCollections)}</td><td>{currency.format(item.suggestedWithdrawal)}</td><td>{currency.format(item.nextFund)}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => viewSaved(item)}>Ver balance</button><button type="button" className="small-action danger-action" onClick={() => void deleteSaved(item)}>Eliminar</button></div></td></tr>)}</tbody></table></div></section>
     {viewing && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setViewing(null) }}><section className="modal balance-summary-modal" role="dialog" aria-modal="true" aria-labelledby="saved-balance-title"><div className="modal-heading"><div><p className="eyebrow">RESUMEN GUARDADO</p><h2 id="saved-balance-title">{monthLabels[viewing.month - 1]} {viewing.year}</h2></div><button className="close-button" type="button" onClick={() => setViewing(null)} aria-label="Cerrar">×</button></div><div className="saved-balance-grid"><div><span>Recaudo del mes</span><strong>{currency.format(viewing.totalCollections)}</strong></div><div><span>En efectivo</span><strong>{currency.format(viewing.cashSales)}</strong></div><div><span>En transferencias</span><strong>{currency.format(viewing.transferSales)}</strong></div><div><span>En otros medios</span><strong>{currency.format(viewing.otherCollections)}</strong></div><div><span>Compras y gastos</span><strong>{currency.format(viewing.totalExpenses)}</strong></div><div><span>Saldo de caja tras gastos</span><strong>{currency.format(viewing.remainingCash)}</strong></div><div><span>Retiro sugerido</span><strong>{currency.format(viewing.suggestedWithdrawal)}</strong></div><div><span>Fondo con que inició</span><strong>{currency.format(viewing.openingFund)}</strong></div><div><span>Fondo para el siguiente mes</span><strong>{currency.format(viewing.nextFund)}</strong></div><div><span>Créditos otorgados</span><strong>{currency.format(viewing.creditsGranted)}</strong></div><div><span>Saldo por cobrar histórico</span><strong>{currency.format(viewing.receivables)}</strong></div></div><div className="modal-actions"><button className="primary-button" type="button" onClick={() => setViewing(null)}>Cerrar resumen</button></div></section></div>}
   </div>
@@ -2639,7 +2640,7 @@ function getMetrics(data: Record<ModuleKey, WorkbookRow[]>, physicalCounts: Phys
   const transferSales = data.VENTAS.filter((row) => String(row.MEDIO_DE_PAGO).includes('Transferencia')).reduce((total, row) => total + Number(row.TOTAL ?? 0), 0)
   const expenses = data.GASTOS.reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const materialExpenses = data.GASTOS.filter((row) => getExpenseCode(row, data)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
-  const creditsPaid = data.CREDITOS.filter((row) => row.TIPO === 'Abono').reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const creditsPaid = data.CREDITOS.filter((row) => isAbonoType(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const monthlyPayments = data.CREDITOS
     .filter((row) => isAbonoType(row.TIPO) && matchesPeriod(row, month, year) && ['cash', 'transfer'].includes(paymentCategory(row['MEDIO PAGO']) ?? ''))
     .reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
