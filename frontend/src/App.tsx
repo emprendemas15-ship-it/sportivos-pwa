@@ -819,11 +819,28 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
       optionsByCode.set(normalizeCode(code), {
         code,
         detail: transaction.detalle ?? '',
-        hint: 'Usado en CREDITOS',
+        unitValue: transaction.valor,
+        discount: transaction.descuento,
+        hint: `Precio ${currency.format(transaction.valor)} · Descuento ${currency.format(transaction.descuento)}`,
       })
     })
     return [...optionsByCode.values()].sort((a, b) => a.code.localeCompare(b.code, 'es', { sensitivity: 'base', numeric: true }))
   }, [selectedPerson])
+  const applyPersonCreditCode = (option: CodeSearchOption) => setForm((current) => ({
+    ...current,
+    code: option.code,
+    detail: option.detail,
+    unitValue: option.unitValue !== undefined && option.unitValue > 0 ? String(option.unitValue) : '',
+    discount: option.discount !== undefined && option.discount >= 0 ? String(option.discount) : '0',
+  }))
+  const updatePersonCreditCode = (value: string) => {
+    const existingCode = personCreditCodeOptions.find((option) => normalizeCode(option.code) === normalizeCode(value))
+    if (existingCode) {
+      applyPersonCreditCode(existingCode)
+      return
+    }
+    setForm((current) => ({ ...current, code: value, detail: '', unitValue: '', discount: '0' }))
+  }
   const matchingFormPeople = useMemo(() => {
     const needle = personQuery.trim().toLocaleLowerCase('es')
     return allPeople.filter((person) => !needle || `${person.name} ${person.sheet}`.toLocaleLowerCase('es').includes(needle))
@@ -1202,7 +1219,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
         </div>
         <fieldset className="validation-credit-type"><legend>Tipo de movimiento</legend><label><input type="radio" name="validation-credit-type" checked={form.type === 'CREDITO'} onChange={() => setForm((current) => ({ ...current, type: 'CREDITO' }))} /> Crédito</label><label><input type="radio" name="validation-credit-type" checked={form.type === 'ABONO'} onChange={() => setForm((current) => ({ ...current, type: 'ABONO' }))} /> Abono</label></fieldset>
         {form.type === 'CREDITO' ? <div className="validation-credit-form-grid">
-          <label>Código de esta persona en CREDITOS<SearchableCodeInput value={form.code} options={personCreditCodeOptions} onChange={(value) => setForm((current) => ({ ...current, code: value }))} onSelect={(option) => setForm((current) => ({ ...current, code: option.code, detail: option.detail }))} allowCustom required placeholder={personCreditCodeOptions.length ? 'Escribe o busca un código del historial' : 'Escribe un código'} ariaLabel={`Buscar código en CREDITOS de ${selectedPerson?.sheet ?? 'la persona'}`} /></label>
+          <label>Código de esta persona en CREDITOS<SearchableCodeInput value={form.code} options={personCreditCodeOptions} onChange={updatePersonCreditCode} onSelect={applyPersonCreditCode} allowCustom required placeholder={personCreditCodeOptions.length ? 'Escribe o busca un código del historial' : 'Escribe un código'} ariaLabel={`Buscar código en CREDITOS de ${selectedPerson?.sheet ?? 'la persona'}`} /></label>
           <label>Descripción<input required value={form.detail} onChange={(event) => setForm((current) => ({ ...current, detail: event.target.value }))} /></label>
           <label>Cantidad<input required type="number" min="0.01" step="any" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
           <label>Valor unitario<input required type="number" min="1" step="1" value={form.unitValue} onChange={(event) => setForm((current) => ({ ...current, unitValue: event.target.value }))} /></label>
@@ -1665,7 +1682,7 @@ function ValidationHistoryDeleteModal({ person, row, personBalance, busy, onClos
   </div>
 }
 
-type CodeSearchOption = { code: string; detail: string; hint?: string; disabled?: boolean }
+type CodeSearchOption = { code: string; detail: string; hint?: string; disabled?: boolean; unitValue?: number; discount?: number }
 
 function SearchableClientInput({ value, options, required, onChange, onSelect }: { value: string; options: string[]; required?: boolean; onChange: (value: string) => void; onSelect: (value: string) => void }) {
   const [isOpen, setIsOpen] = useState(false)
