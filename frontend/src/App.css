@@ -138,15 +138,16 @@
 .utility-chart-axis { fill: #8a978f; font-size: 10px; }
 .utility-chart-line { fill: none; stroke: #23804e; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
 .utility-chart-expense-line { fill: none; stroke: #d17b57; stroke-width: 3; stroke-dasharray: 7 5; stroke-linecap: round; stroke-linejoin: round; }
+.utility-chart-collection-line { fill: none; stroke: #477a9f; stroke-width: 3; stroke-dasharray: 3 4; stroke-linecap: round; stroke-linejoin: round; }
 .utility-chart-point { fill: #fff; stroke: #23804e; stroke-width: 3; }
 .utility-chart-expense-point { fill: #fff; stroke: #d17b57; stroke-width: 3; }
-.utility-chart-value { fill: #1d5d39; font-size: 12px; font-weight: 800; }
-.utility-chart-expense-value { fill: #a85b3d; font-size: 12px; font-weight: 800; }
+.utility-chart-collection-point { fill: #fff; stroke: #477a9f; stroke-width: 3; }
 .utility-chart-month { fill: #68786e; font-size: 10px; font-weight: 600; }
 .utility-chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; padding: 0 8px 4px; color: #64746a; font-size: 10px; }
 .utility-chart-legend span { display: inline-flex; align-items: center; gap: 7px; }
 .utility-chart-legend i { display: inline-block; width: 18px; height: 0; border-top: 3px solid #23804e; }
 .utility-chart-legend .utility-legend-expense { border-top: 3px dashed #d17b57; }
+.utility-chart-legend .utility-legend-collection { border-top: 3px dotted #477a9f; }
 .balance-trend .section-heading { padding-bottom: 8px; }
 .balance-trend-empty { padding: 18px 20px 22px; color: #89978e; font-size: 12px; line-height: 1.6; }
 .balance-chart-wrap { width: 100%; overflow-x: auto; padding: 3px 17px 0; }

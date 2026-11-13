@@ -1395,7 +1395,7 @@ function Menu({ data, balances, physicalCounts, month, year, onNavigate }: { dat
       <SummaryCard label="Productos terminados" value={number.format(metrics.products)} note="Registros en INVENTARIO_PT" tone="green" />
       <SummaryCard label="Stock disponible" value={number.format(metrics.stock)} note="ENTRADAS menos SALIDAS" tone="blue" />
       <SummaryCard label="Valor del stock" value={currency.format(metrics.stockValue)} note="Existencias actuales × costo unitario" tone="amber" />
-      <SummaryCard label="Gastos registrados" value={currency.format(metrics.expenses)} note="Suma de VALOR en GASTOS" tone="rose" />
+      <SummaryCard label="Compras de mercancía este mes" value={currency.format(metrics.monthlyPurchases)} note={`Suma de ENTRADAS · ${monthLabels[month - 1]} ${year}`} tone="rose" />
       <SummaryCard label="Abonos recibidos este mes" value={currency.format(metrics.monthlyPayments)} note={`${monthLabels[month - 1]} · efectivo y transferencias`} tone="blue" />
     </div>
     <UtilityTrend balances={balances} />
@@ -1479,8 +1479,9 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
   const latest = balances.slice(-6)
   const utilityValues = latest.map((item) => item.totalCollections - item.totalExpenses)
   const expenseValues = latest.map((item) => item.totalExpenses)
+  const collectionValues = latest.map((item) => item.totalCollections)
   const min = Math.min(0, ...utilityValues)
-  const max = Math.max(0, ...utilityValues, ...expenseValues)
+  const max = Math.max(0, ...utilityValues, ...expenseValues, ...collectionValues)
   const range = max - min || 1
   const padding = range * 0.12
   const chartMin = min - padding
@@ -1499,22 +1500,16 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
   const plotCenter = (left + chartWidth - right) / 2
   const xForMonth = (item: MonthlyBalance) => plotCenter + (item.year * 12 + item.month - (firstMonth + monthSpan / 2)) * monthSpacing
   const yForValue = (value: number) => bottom - (value - chartMin) / (chartMax - chartMin) * plotHeight
-  const points = latest.map((item) => ({ item, utility: item.totalCollections - item.totalExpenses, expenses: item.totalExpenses, x: xForMonth(item), utilityY: yForValue(item.totalCollections - item.totalExpenses), expensesY: yForValue(item.totalExpenses) }))
+  const points = latest.map((item) => ({ item, utility: item.totalCollections - item.totalExpenses, expenses: item.totalExpenses, collections: item.totalCollections, x: xForMonth(item), utilityY: yForValue(item.totalCollections - item.totalExpenses), expensesY: yForValue(item.totalExpenses), collectionsY: yForValue(item.totalCollections) }))
   const utilityLine = points.map((point) => `${point.x},${point.utilityY}`).join(' ')
   const expenseLine = points.map((point) => `${point.x},${point.expensesY}`).join(' ')
+  const collectionLine = points.map((point) => `${point.x},${point.collectionsY}`).join(' ')
   const axisLabel = (value: number) => value === 0 ? '$0' : `$${number.format(Math.round(value / 100000) / 10)} M`
-  const valueLabel = (value: number) => isCompact
-    ? Math.abs(value) >= 1000000
-      ? `$${number.format(value / 1000000)} M`
-      : Math.abs(value) >= 1000
-        ? `$${number.format(value / 1000)} mil`
-        : currency.format(value)
-    : currency.format(value)
 
-  return <section className="utility-trend" aria-label="Utilidad y gastos mensuales">
-    <div className="section-heading"><div><h2>Utilidad y gastos mensuales</h2><p>Comparación mensual del resultado neto y los egresos</p></div></div>
-    {latest.length === 0 ? <div className="balance-trend-empty">Cuando guardes un balance mensual, aquí verás la utilidad de cada mes.</div> : <div className="utility-chart-wrap">
-      <svg className="utility-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Líneas de utilidad neta y gastos mensuales">
+  return <section className="utility-trend" aria-label="Utilidad, gastos y dinero recaudado mensuales">
+    <div className="section-heading"><div><h2>Utilidad, gastos y dinero recaudado</h2><p>Comparación mensual del resultado neto, los egresos y el recaudo</p></div></div>
+    {latest.length === 0 ? <div className="balance-trend-empty">Cuando guardes un balance mensual, aquí verás la utilidad, los gastos y el dinero recaudado de cada mes.</div> : <div className="utility-chart-wrap">
+      <svg className="utility-chart" viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="Líneas de utilidad neta, gastos y dinero recaudado por mes">
         {[0, 0.5, 1].map((fraction) => {
           const value = chartMin + (chartMax - chartMin) * fraction
           const y = yForValue(value)
@@ -1522,26 +1517,20 @@ function UtilityTrend({ balances }: { balances: MonthlyBalance[] }) {
         })}
         <polyline points={utilityLine} className="utility-chart-line" />
         <polyline points={expenseLine} className="utility-chart-expense-line" />
-        {points.map(({ item, utility, expenses, x, utilityY, expensesY }) => {
+        <polyline points={collectionLine} className="utility-chart-collection-line" />
+        {points.map(({ item, utility, expenses, collections, x, utilityY, expensesY, collectionsY }) => {
           const monthName = monthLabels[item.month - 1]
           const label = `${monthName} ${item.year}`
           const displayMonth = isCompact ? `${monthName.slice(0, 3)} '${String(item.year).slice(-2)}` : label
-          const labelsNeedSeparation = Math.abs(utilityY - expensesY) < (isCompact ? 25 : 30)
-          const labelOffset = isCompact ? 25 : 39
-          const utilityLabelX = labelsNeedSeparation ? x - labelOffset : x
-          const expenseLabelX = labelsNeedSeparation ? x + labelOffset : x
-          const utilityLabelY = utilityY < top + 28 ? utilityY + 29 : utilityY - 13
-          const expenseLabelY = expensesY < top + 28 ? expensesY + 29 : expensesY + 20
           return <g key={`${item.year}-${item.month}`}>
             <circle cx={x} cy={utilityY} r="4.5" className="utility-chart-point"><title>{`Utilidad · ${label}: ${currency.format(utility)}`}</title></circle>
             <circle cx={x} cy={expensesY} r="4.5" className="utility-chart-expense-point"><title>{`Gastos · ${label}: ${currency.format(expenses)}`}</title></circle>
-            <text x={utilityLabelX} y={utilityLabelY} textAnchor="middle" className="utility-chart-value">{valueLabel(utility)}</text>
-            <text x={expenseLabelX} y={expenseLabelY} textAnchor="middle" className="utility-chart-expense-value">{valueLabel(expenses)}</text>
+            <circle cx={x} cy={collectionsY} r="4.5" className="utility-chart-collection-point"><title>{`Dinero recaudado · ${label}: ${currency.format(collections)}`}</title></circle>
             <text x={x} y="202" textAnchor="middle" className="utility-chart-month">{displayMonth}</text>
           </g>
         })}
       </svg>
-      <div className="utility-chart-legend"><span><i className="utility-legend-profit" />Utilidad neta</span><span><i className="utility-legend-expense" />Gastos</span></div>
+      <div className="utility-chart-legend"><span><i className="utility-legend-profit" />Utilidad neta</span><span><i className="utility-legend-expense" />Gastos</span><span><i className="utility-legend-collection" />Dinero recaudado</span></div>
     </div>}
   </section>
 }
@@ -1883,7 +1872,7 @@ function calculateBalance(data: Record<ModuleKey, WorkbookRow[]>, month: number,
   const codedExpenses = expenses.filter((row) => Boolean(getExpenseCode(row, data)))
   const nonProducedExpenseRows = codedExpenses.filter((row) => nonProducedCodes.has(getExpenseCode(row, data).toLowerCase()))
   const productionExpenseRows = codedExpenses.filter((row) => !nonProducedCodes.has(getExpenseCode(row, data).toLowerCase()))
-  const nonProducedCosts = entries.reduce((total, row) => total + (Number(row.Columna1 ?? 0) || Number(row.CANTIDAD ?? 0) * Number(row.PRECIO ?? 0)), 0) + sum(nonProducedExpenseRows, 'VALOR')
+  const nonProducedCosts = entries.reduce((total, row) => total + calculateEntryValue(row), 0) + sum(nonProducedExpenseRows, 'VALOR')
   const operatingExpenses = sum(expenses.filter((row) => !getExpenseCode(row, data)), 'VALOR')
   const productionCosts = sum(productionExpenseRows, 'VALOR')
   const fixedCosts = nonProducedEntries.reduce((total, row) => {
@@ -2612,6 +2601,9 @@ function normalizeRow(module: ModuleKey, row: WorkbookRow, data: Record<ModuleKe
 function calculateLineTotal(quantity: CellValue, unitPrice: CellValue, discount: CellValue = 0): number {
   return Number(quantity ?? 0) * Number(unitPrice ?? 0) - Number(discount ?? 0)
 }
+function calculateEntryValue(row: WorkbookRow): number {
+  return Number(row.Columna1 ?? 0) || Number(row.CANTIDAD ?? 0) * Number(row.PRECIO ?? 0)
+}
 function formatCell(value: CellValue, key: string): string {
   const cleanValue = cleanExcelError(value)
   if (cleanValue === null || cleanValue === '') return '-'
@@ -2640,6 +2632,9 @@ function getMetrics(data: Record<ModuleKey, WorkbookRow[]>, physicalCounts: Phys
   const transferSales = data.VENTAS.filter((row) => String(row.MEDIO_DE_PAGO).includes('Transferencia')).reduce((total, row) => total + Number(row.TOTAL ?? 0), 0)
   const expenses = data.GASTOS.reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const materialExpenses = data.GASTOS.filter((row) => getExpenseCode(row, data)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const monthlyPurchases = data.ENTRADAS
+    .filter((row) => matchesPeriod(row, month, year))
+    .reduce((total, row) => total + calculateEntryValue(row), 0)
   const creditsPaid = data.CREDITOS.filter((row) => isAbonoType(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
   const monthlyPayments = data.CREDITOS
     .filter((row) => isAbonoType(row.TIPO) && matchesPeriod(row, month, year) && ['cash', 'transfer'].includes(paymentCategory(row['MEDIO PAGO']) ?? ''))
@@ -2647,7 +2642,7 @@ function getMetrics(data: Record<ModuleKey, WorkbookRow[]>, physicalCounts: Phys
   const inventory = getRows('INVENTARIO_PT', data, physicalCounts)
   const stock = inventory.reduce((total, row) => total + Number(row.STOCK ?? 0), 0)
   const stockValue = inventory.reduce((total, row) => total + Math.max(0, Number(row.STOCK ?? 0)) * Number(row.COSTO ?? 0), 0)
-  return { products: data.INVENTARIO_PT.length, stock, stockValue, sales, cashSales, transferSales, expenses, materialExpenses, operatingExpenses: expenses - materialExpenses, creditsPaid, monthlyPayments }
+  return { products: data.INVENTARIO_PT.length, stock, stockValue, sales, cashSales, transferSales, expenses, materialExpenses, operatingExpenses: expenses - materialExpenses, creditsPaid, monthlyPayments, monthlyPurchases }
 }
 function emptyWorkbookData(): Record<ModuleKey, WorkbookRow[]> {
   const entries: Array<[ModuleKey, WorkbookRow[]]> = (Object.keys(moduleColumns) as ModuleKey[]).map((module) => [module, []])
