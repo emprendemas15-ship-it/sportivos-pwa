@@ -80,8 +80,6 @@ validationCreditClientAliases.forEach(([alias, canonical]) => {
   const person = validationCreditPortfolio.find((candidate) => normalizeClientName(candidate.sheet) === normalizeClientName(canonical))
   if (person) validationCreditClientSheets.set(normalizeClientName(alias), person.sheet)
 })
-// The original CREDITOS import completed on Nov 4. New spreadsheet balances replace it;
-// only later live rows absent from that spreadsheet are added to each client balance.
 const localDateInputValue = () => {
   const date = new Date()
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -1274,36 +1272,6 @@ function parseSavedValidationMovement(value: unknown): SavedValidationCreditMove
   }
 }
 
-function getCreditLedgerMovements(data: Record<ModuleKey, WorkbookRow[]>): SavedValidationCreditMovement[] {
-  return data.CREDITOS
-    .filter((row) => isCreditType(row.TIPO) || isAbonoType(row.TIPO) || isReturnType(row.TIPO))
-    .map((row): SavedValidationCreditMovement => {
-      const personName = String(row.NOMBRE ?? '').trim()
-      const movementType = isAbonoType(row.TIPO) ? 'ABONO' : isReturnType(row.TIPO) ? 'DEVOLUCION' : 'CREDITO'
-      const id = String(row.id ?? '')
-      if (!personName || !id || !dateInputValue(row.FECHA)) {
-        throw new Error('Un movimiento de CREDITOS no tiene cliente, identificador o fecha válidos.')
-      }
-      return {
-        id: `credit:${id}`,
-        request_id: `credit:${id}`,
-        person_sheet: getValidationClientSheet(personName) ?? personName,
-        movement_type: movementType,
-        movement_date: dateInputValue(row.FECHA),
-        code: String(row.CODIGO ?? '').trim() || null,
-        detail: String(row.DETALLE ?? '').trim() || null,
-        quantity: Number(row.CANT ?? 0),
-        unit_value: Number(row.PRECIO ?? 0),
-        discount: Number(row.DESCUENTO ?? 0),
-        total: movementType === 'ABONO' ? 0 : Number(row.VALOR ?? 0),
-        payment_amount: movementType === 'ABONO' ? Number(row.VALOR ?? 0) : 0,
-        balance_after: Number(row.DEUDA ?? 0),
-        business: 'SPORTIVOS',
-        created_at: String(row.created_at ?? ''),
-      }
-    })
-}
-
 function getValidationLedgerMovements(data: Record<ModuleKey, WorkbookRow[]>, localMovements: SavedValidationCreditMovement[] = []): SavedValidationCreditMovement[] {
   return deduplicateMovementSources([data.VALIDACION_CREDITOS.map(parseSavedValidationMovement), localMovements])
 }
@@ -1322,41 +1290,37 @@ function getValidationCreditPeople(
 
 function getClientLedgerPeople(
   data: Record<ModuleKey, WorkbookRow[]>,
-): ValidationCreditPerson[] {
-  const clientByIdentity = new Map<string, WorkbookRow>()
+): Array<Pick<ValidationCreditPerson, 'sheet' | 'saldoPendiente'>> {
+  const peopleByIdentity = new Map<string, string>()
   data.CLIENTES.forEach((client) => {
+    const name = String(client.NOMBRE ?? '').trim()
     const identity = getValidationClientIdentity(client.NOMBRE)
-    if (identity && !clientByIdentity.has(identity)) clientByIdentity.set(identity, client)
+    if (identity && name && !peopleByIdentity.has(identity)) peopleByIdentity.set(identity, name)
   })
-  const clientNames = [
-    ...data.CLIENTES.map((row) => String(row.NOMBRE ?? '').trim()),
-    ...data.CREDITOS.map((row) => String(row.NOMBRE ?? '').trim()),
-  ].filter(Boolean)
-  const movements = getCreditLedgerMovements(data).filter((movement) => {
-    const identity = getValidationClientIdentity(movement.person_sheet)
-    const snapshot = clientByIdentity.get(identity)
-    const balance = snapshot?.saldo_base
-    const asOf = Date.parse(String(snapshot?.saldo_base_fecha ?? ''))
-    const hasSnapshot = balance !== null && balance !== undefined && balance !== ''
-      && Number.isFinite(Number(balance)) && Number.isFinite(asOf)
-    return !hasSnapshot || rowCreatedAtValue(movement) > asOf
+  const movementsByIdentity = new Map<string, WorkbookRow[]>()
+  getRows('CREDITOS', data).forEach((row) => {
+    if (!isCreditType(row.TIPO) && !isAbonoType(row.TIPO) && !isReturnType(row.TIPO)) return
+    const name = String(row.NOMBRE ?? '').trim()
+    const identity = getValidationClientIdentity(name)
+    if (!identity || !name) return
+    if (!peopleByIdentity.has(identity)) peopleByIdentity.set(identity, getValidationClientSheet(name) ?? name)
+    const movements = movementsByIdentity.get(identity) ?? []
+    movements.push(row)
+    movementsByIdentity.set(identity, movements)
   })
-  return mergeValidationCreditMovements(movements, clientNames, new Set(), false).map((person) => {
-    const identity = getValidationClientIdentity(person.sheet)
-    const client = clientByIdentity.get(identity)
-    const balance = Number(client?.saldo_base)
-    const asOf = Date.parse(String(client?.saldo_base_fecha ?? ''))
-    if (!client || client.saldo_base === null || client.saldo_base === undefined || client.saldo_base === ''
-      || !Number.isFinite(balance) || !Number.isFinite(asOf)) return person
-    const transactions = person.transactions.map((transaction) => ({ ...transaction, debe: transaction.debe + balance }))
-    const saldoPendiente = person.saldoPendiente + balance
-    return {
-      ...person,
-      transactions,
-      saldoPendiente,
-      estado: saldoPendiente > 0 ? 'PENDIENTE' : 'AL_DIA',
-    }
-  })
+  return [...peopleByIdentity.entries()].map(([identity, name]) => {
+    const movements = movementsByIdentity.get(identity) ?? []
+    let balance = 0
+    // CREDITOS is loaded in stable id order, so its final row has the latest recorded DEUDA.
+    movements.forEach((row) => {
+      const recordedBalance = Number(row.DEUDA)
+      balance = row.DEUDA !== null && row.DEUDA !== undefined && row.DEUDA !== ''
+        && Number.isFinite(recordedBalance)
+        ? recordedBalance
+        : balance + getCreditMovementDelta(row)
+    })
+    return { sheet: getValidationClientSheet(name) ?? name, saldoPendiente: balance }
+  }).sort((a, b) => compareClientNames(a.sheet, b.sheet))
 }
 
 function deduplicateMovementSources(sources: SavedValidationCreditMovement[][]): SavedValidationCreditMovement[] {
@@ -1644,17 +1608,6 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
   const pageCount = Math.max(1, Math.ceil(displayRows.length / pageSize))
   const pageRows = displayRows.slice(page * pageSize, (page + 1) * pageSize)
   useEffect(() => { setPage(0) }, [module, rows])
-  const clientSnapshots = useMemo(() => {
-    const snapshots = new Map<string, { balance: number; asOf: number }>()
-    data.CLIENTES.forEach((client) => {
-      const identity = getValidationClientIdentity(client.NOMBRE)
-      const balance = Number(client.saldo_base)
-      const asOf = Date.parse(String(client.saldo_base_fecha ?? ''))
-      if (identity && client.saldo_base !== null && client.saldo_base !== undefined && client.saldo_base !== ''
-        && Number.isFinite(balance) && Number.isFinite(asOf)) snapshots.set(identity, { balance, asOf })
-    })
-    return snapshots
-  }, [data.CLIENTES])
   const clientTransactions = useMemo(() => {
     const transactions = new Map<string, WorkbookRow[]>()
     getRows('CREDITOS', data).forEach((row) => {
@@ -1683,7 +1636,6 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
         <tbody>{rows.length === 0 ? <tr><td colSpan={columns.length + (module === 'CLIENTES' ? 2 : 0) + (canDelete ? 1 : 0)} className="empty-state"><strong>{module === 'CREDITOS' && totalRows > 0 ? 'No hay movimientos con esos filtros' : 'Sin registros'}</strong><span>{module === 'CREDITOS' && totalRows > 0 ? 'Prueba con otro nombre, tipo o rango de fechas.' : 'Usa Nuevo registro para capturar un dato.'}</span></td></tr> : pageRows.map((row, index) => {
           const clientName = String(row.NOMBRE ?? '').trim()
           const clientIdentity = getValidationClientIdentity(clientName)
-          const clientSnapshot = clientSnapshots.get(clientIdentity)
           const statementRows = clientTransactions.get(clientIdentity) ?? []
           const recordKey = `${module}:${row.id ?? index}`
           return <tr key={module === 'CLIENTES' ? `CLIENTES-${normalizeClientName(row.NOMBRE)}` : module + '-' + String(row.id ?? index)} className={module === 'CREDITOS' ? 'credit-record-row' : undefined}>
@@ -1694,12 +1646,12 @@ function ModuleView({ module, data, rows, totalRows, search, onSearch, creditFil
               const displayValue = module === 'CREDITOS' && column.key === 'NOMBRE' ? getValidationClientSheet(value) ?? value : value
               return <td key={column.key} data-credit-label={module === 'CREDITOS' ? column.label : undefined} data-credit-field={module === 'CREDITOS' ? column.key : undefined}>{formatCell(displayValue, column.key)}</td>
             })}
-            {module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => { void import('./lib/client-statement').then(({ downloadClientStatement }) => downloadClientStatement(clientName, statementRows, clientSnapshot ? { openingBalance: clientSnapshot.balance, openingDate: clientSnapshot.asOf } : undefined)).catch((error: unknown) => onNotice('No se pudo generar el estado de cuenta. ' + (error instanceof Error ? error.message : 'Error desconocido.'))) }}>Descargar PDF</button><button type="button" className="small-action" onClick={() => { void import('./lib/client-statement').then(({ shareClientStatement }) => shareClientStatement(clientName, statementRows, onNotice, clientSnapshot ? { openingBalance: clientSnapshot.balance, openingDate: clientSnapshot.asOf } : undefined)).catch((error: unknown) => onNotice('No se pudo compartir el estado de cuenta. ' + (error instanceof Error ? error.message : 'Error desconocido.'))) }}>Compartir</button></div></td></>}
+            {module === 'CLIENTES' && <><td className="client-balance">{currency.format(Number(row.Columna1 ?? 0))}</td><td><div className="client-actions"><button type="button" className="small-action" onClick={() => { void import('./lib/client-statement').then(({ downloadClientStatement }) => downloadClientStatement(clientName, statementRows)).catch((error: unknown) => onNotice('No se pudo generar el estado de cuenta. ' + (error instanceof Error ? error.message : 'Error desconocido.'))) }}>Descargar PDF</button><button type="button" className="small-action" onClick={() => { void import('./lib/client-statement').then(({ shareClientStatement }) => shareClientStatement(clientName, statementRows, onNotice)).catch((error: unknown) => onNotice('No se pudo compartir el estado de cuenta. ' + (error instanceof Error ? error.message : 'Error desconocido.'))) }}>Compartir</button></div></td></>}
             {canDelete && <td className={`row-actions${module === 'CREDITOS' ? ' credit-action-cell' : ''}`} data-credit-label={module === 'CREDITOS' ? 'Acciones' : undefined} data-credit-field={module === 'CREDITOS' ? 'ACCIONES' : undefined}><button type="button" className="delete-button" disabled={deletingRecord !== null || (module === 'CLIENTES' && Boolean(hiddenClientRecordsError))} onClick={() => module === 'CLIENTES' ? onDeleteClient(row) : onDelete(module, row)} aria-label={module === 'CLIENTES' ? 'Eliminar cliente' : `Borrar registro de ${module}`} title={module === 'CLIENTES' ? 'Eliminar cliente' : 'Borrar registro'}>{deletingRecord === recordKey ? 'Borrando…' : module === 'CLIENTES' ? 'Eliminar cliente' : 'Borrar'}</button></td>}
           </tr>
         })}</tbody>
       </table></div>
-      <footer className="table-footer"><span>Mostrando <strong>{displayRows.length ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, displayRows.length)}</strong> de <strong>{displayRows.length}</strong> filtrados{displayRows.length !== totalRows ? <> (total: <strong>{totalRows}</strong>)</> : null}</span>{pageCount > 1 && <div className="table-pagination"><button className="small-action" type="button" disabled={page === 0} onClick={() => setPage((current) => current - 1)}>Anterior</button><span>Página {page + 1} de {pageCount}</span><button className="small-action" type="button" disabled={page + 1 >= pageCount} onClick={() => setPage((current) => current + 1)}>Siguiente</button></div>}{module === 'CLIENTES' && <span className="footer-note">Saldo base de CLIENTES, si existe, más movimientos posteriores registrados en CREDITOS.</span>}</footer>
+      <footer className="table-footer"><span>Mostrando <strong>{displayRows.length ? page * pageSize + 1 : 0}–{Math.min((page + 1) * pageSize, displayRows.length)}</strong> de <strong>{displayRows.length}</strong> filtrados{displayRows.length !== totalRows ? <> (total: <strong>{totalRows}</strong>)</> : null}</span>{pageCount > 1 && <div className="table-pagination"><button className="small-action" type="button" disabled={page === 0} onClick={() => setPage((current) => current - 1)}>Anterior</button><span>Página {page + 1} de {pageCount}</span><button className="small-action" type="button" disabled={page + 1 >= pageCount} onClick={() => setPage((current) => current + 1)}>Siguiente</button></div>}{module === 'CLIENTES' && <span className="footer-note">El saldo es informativo y se toma del último movimiento registrado en CREDITOS.</span>}</footer>
     </section>}
   </section>
 }
@@ -2676,7 +2628,7 @@ function moduleDescription(module: ModuleKey): string {
     VENTAS: 'Registro de ventas, descuentos, total y medio de pago.',
     GASTOS: 'Registro de compras de insumos y gastos operativos.',
     CREDITOS: 'Creditos otorgados y abonos de clientes.',
-    CLIENTES: 'Listado de clientes usados por los formularios.',
+    CLIENTES: 'Listado informativo; los saldos y movimientos se consultan desde CREDITOS.',
     COSTOS_NO_PRODUCIDOS: 'Costos de productos comprados o no producidos.',
     BALANCE: 'Reporte mensual de ventas, recaudo, egresos, retiro y fondo.',
     VALIDACION_CREDITOS: `Validación de cartera por persona importada desde ${validationCreditSourceWorkbook}.`,

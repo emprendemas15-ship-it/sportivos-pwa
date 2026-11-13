@@ -1,7 +1,6 @@
 import type { WorkbookRow } from './workbook'
 
 const cop = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 })
-export type ClientStatementOptions = { openingBalance: number; openingDate: number }
 
 function safeText(value: unknown): string {
   return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7E]/g, ' ')
@@ -20,7 +19,7 @@ function reducesDebt(value: unknown): boolean {
   return ['abono', 'devolucion'].includes(safeText(value).toLowerCase())
 }
 
-async function makePdf(clientName: string, transactions: WorkbookRow[], options?: ClientStatementOptions): Promise<Blob> {
+async function makePdf(clientName: string, transactions: WorkbookRow[]): Promise<Blob> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
   const green = rgb(0.11, 0.29, 0.21)
   const lightGreen = rgb(0.91, 0.95, 0.91)
@@ -33,32 +32,21 @@ async function makePdf(clientName: string, transactions: WorkbookRow[], options?
   const byDate = (a: WorkbookRow, b: WorkbookRow) => rowDateValue(a.FECHA) - rowDateValue(b.FECHA)
     || rowCreatedAtValue(a) - rowCreatedAtValue(b)
   const orderedByDate = [...transactions].sort(byDate)
-  const historical = options ? orderedByDate.filter((row) => rowCreatedAtValue(row) <= options.openingDate) : []
-  const sinceOpening = options ? orderedByDate.filter((row) => rowCreatedAtValue(row) > options.openingDate) : orderedByDate
-  const ordered = options ? [...historical, ...sinceOpening] : orderedByDate
-  const totalCharges = sinceOpening.filter((row) => !reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
-  const totalPayments = sinceOpening.filter((row) => reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
-  const totalRefunds = sinceOpening.filter((row) => safeText(row.TIPO).toLowerCase() === 'devolucion').reduce((total, row) => total + Number(String(row.COMENTARIO ?? '').match(/REEMBOLSO:(\d+(?:\.\d+)?)/i)?.[1] ?? 0), 0)
-  const finalBalance = (options?.openingBalance ?? 0) + totalCharges - totalPayments
+  const ordered = orderedByDate
+  const totalCharges = ordered.filter((row) => !reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const totalPayments = ordered.filter((row) => reducesDebt(row.TIPO)).reduce((total, row) => total + Number(row.VALOR ?? 0), 0)
+  const totalRefunds = ordered.filter((row) => safeText(row.TIPO).toLowerCase() === 'devolucion').reduce((total, row) => total + Number(String(row.COMENTARIO ?? '').match(/REEMBOLSO:(\d+(?:\.\d+)?)/i)?.[1] ?? 0), 0)
   const lineBalances = new Map<WorkbookRow, number>()
-  if (options) {
-    let historicalBalance = options.openingBalance - historical.reduce((total, row) => total + movementDelta(row), 0)
-    historical.forEach((row) => {
-      historicalBalance += movementDelta(row)
-      lineBalances.set(row, historicalBalance)
-    })
-    let currentBalance = options.openingBalance
-    sinceOpening.forEach((row) => {
-      currentBalance += movementDelta(row)
-      lineBalances.set(row, currentBalance)
-    })
-  } else {
-    let balance = 0
-    ordered.forEach((row) => {
-      balance += movementDelta(row)
-      lineBalances.set(row, balance)
-    })
-  }
+  let balance = 0
+  transactions.forEach((row) => {
+    const recordedBalance = Number(row.DEUDA)
+    balance = row.DEUDA !== null && row.DEUDA !== undefined && row.DEUDA !== ''
+      && Number.isFinite(recordedBalance)
+      ? recordedBalance
+      : balance + movementDelta(row)
+    lineBalances.set(row, balance)
+  })
+  const finalBalance = balance
   const createdAt = new Date().toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })
   let logo: Awaited<ReturnType<typeof pdf.embedPng>> | null = null
   try {
@@ -100,12 +88,7 @@ async function makePdf(clientName: string, transactions: WorkbookRow[], options?
     draw(String(ordered.length), 142, infoY - 31, 8, regular, green)
 
     const summaryY = infoY - 84
-    const boxes = options ? [
-      { x: 38, title: `SALDO BASE ${new Date(options.openingDate).toLocaleDateString('es-CO')}`, amount: options.openingBalance },
-      { x: 170, title: 'CARGOS DESDE CORTE', amount: totalCharges },
-      { x: 302, title: 'ABONOS DESDE CORTE', amount: totalPayments },
-      { x: 434, title: 'SALDO ACTUAL', amount: finalBalance },
-    ] : [
+    const boxes = [
       { x: 38, title: 'TOTAL CARGOS', amount: totalCharges },
       { x: 170, title: 'ABONOS A DEUDA', amount: totalPayments },
       { x: 302, title: 'REEMBOLSOS', amount: totalRefunds },
@@ -151,8 +134,8 @@ async function makePdf(clientName: string, transactions: WorkbookRow[], options?
   return new Blob([new Uint8Array(bytes).buffer as ArrayBuffer], { type: 'application/pdf' })
 }
 
-export async function downloadClientStatement(clientName: string, transactions: WorkbookRow[], options?: ClientStatementOptions): Promise<void> {
-  const blob = await makePdf(clientName, transactions, options)
+export async function downloadClientStatement(clientName: string, transactions: WorkbookRow[]): Promise<void> {
+  const blob = await makePdf(clientName, transactions)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -161,8 +144,8 @@ export async function downloadClientStatement(clientName: string, transactions: 
   window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export async function shareClientStatement(clientName: string, transactions: WorkbookRow[], notify: (message: string) => void, options?: ClientStatementOptions): Promise<void> {
-  const blob = await makePdf(clientName, transactions, options)
+export async function shareClientStatement(clientName: string, transactions: WorkbookRow[], notify: (message: string) => void): Promise<void> {
+  const blob = await makePdf(clientName, transactions)
   const filename = `estado-cuenta-${safeText(clientName).toLowerCase().replace(/\s+/g, '-')}.pdf`
   const file = new File([blob], filename, { type: 'application/pdf' })
   if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
@@ -173,7 +156,7 @@ export async function shareClientStatement(clientName: string, transactions: Wor
       if (error instanceof DOMException && error.name === 'AbortError') return
     }
   }
-  await downloadClientStatement(clientName, transactions, options)
+  await downloadClientStatement(clientName, transactions)
   notify('Este navegador no permite compartir archivos directamente. Descargué el PDF para que puedas adjuntarlo.')
 }
 

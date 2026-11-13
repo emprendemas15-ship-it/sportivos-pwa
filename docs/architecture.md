@@ -15,7 +15,7 @@ Las hojas ocultas no se muestran ni se importan. Esto excluye inventario de mate
 - `scripts/migrate-excel-to-supabase.ps1`: cotejo e importación de datos del libro a las tablas remotas.
 - `backend/` y `prisma/`: componentes auxiliares que no se publican en GitHub Pages.
 
-Los datos de las siete hojas operativas usan Supabase. Los campos calculados que no existen como columnas remotas se recalculan al leer o se excluyen al guardar: total de ENTRADAS, saldo de CLIENTES, mes de GASTOS y margen de COSTOS_NO_PRODUCIDOS. El saldo del inventario convierte el nombre de la columna de consignación entre el esquema remoto y el encabezado visible.
+Los datos de las siete hojas operativas usan Supabase. Los campos calculados que no existen como columnas remotas se recalculan al leer o se excluyen al guardar: total de ENTRADAS, saldo informativo de CLIENTES (tomado del último `DEUDA` en CREDITOS), mes de GASTOS y margen de COSTOS_NO_PRODUCIDOS. Los formularios de crédito y abono usan ese mismo historial como fuente del saldo; no leen ni guardan un saldo aparte en CLIENTES. El saldo del inventario convierte el nombre de la columna de consignación entre el esquema remoto y el encabezado visible.
 
 Los cierres mensuales se guardan en la tabla remota `balance`; `Estado del período` conserva el resumen completo para que el historial se pueda recuperar desde otro dispositivo. El balance calcula el fondo siguiente después de gastos y retiro sugerido.
 
