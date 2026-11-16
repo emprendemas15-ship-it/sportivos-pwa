@@ -27,20 +27,6 @@ type SyncState = 'syncing' | 'synced' | 'error'
 type PhysicalInventoryCount = { id: string; code: string; quantity: number; countedAt: string; note: string | null }
 type RemoteSnapshot = { data: Record<ModuleKey, WorkbookRow[]>; physicalCounts: PhysicalInventoryCount[]; physicalCountsError: string }
 type CreditFilters = { name: string; product: string; type: string; from: string; to: string }
-type ValidationCreditFormValues = {
-  requestId: string
-  personSheet: string
-  type: 'CREDITO' | 'ABONO'
-  date: string
-  code: string
-  detail: string
-  quantity: string
-  unitValue: string
-  discount: string
-  paymentAmount: string
-  business: string
-  businessDetail: string
-}
 type HiddenClientRecord = {
   client_identity: string
   client_name: string
@@ -53,12 +39,11 @@ type DeletedValidationHistoryRecord = { client_identity: string; transaction_key
 const validationCreditTable = 'validacion_creditos_movimientos'
 const hiddenClientTable = 'sportivos_clientes_eliminados'
 const deletedValidationHistoryTable = 'validacion_creditos_registros_eliminados'
-const validationCreditBusinesses = ['COLIPETS', 'OTRO', 'SPORTIVOS']
-const validationCreditClientSheets = new Map(validationCreditClientAliases.map(([alias, canonical]) => [normalizeClientName(alias), canonical]))
 const localDateInputValue = () => {
   const date = new Date()
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
+const validationCreditClientSheets = new Map(validationCreditClientAliases.map(([alias, canonical]) => [normalizeClientName(alias), canonical]))
 
 const datedOperationalModules = new Set<ModuleKey>(['ENTRADAS', 'VENTAS', 'GASTOS', 'CREDITOS'])
 
@@ -502,7 +487,7 @@ function App() {
       </header>
       {notice && <div className="toast" role="status">{notice}</div>}
       {syncError && <div className="sync-warning" role="status">{syncError}</div>}
-      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} physicalCounts={physicalCounts} month={periodPolicy.month} year={periodPolicy.year} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} hiddenClientRecordsError={hiddenClientRecordsError} deletedHistoryRecords={deletedHistoryRecords} deletedHistoryError={deletedHistoryError} onDeletedHistoryRecord={(record) => setDeletedHistoryRecords((current) => current.some((item) => item.client_identity === record.client_identity && item.transaction_key === record.transaction_key) ? current : [...current, record])} onDeletePerson={deleteValidationPerson} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onPhysicalCount={() => setShowPhysicalCount(true)} onDelete={deleteRow} onDeleteClient={deleteClient} deletingRecord={deletingRecord} hiddenClientRecordsError={hiddenClientRecordsError} onNotice={flashNotice} physicalCountsError={physicalCountsError} />}
+      {active === 'MENU' ? <Menu data={data} balances={balanceHistory} physicalCounts={physicalCounts} month={periodPolicy.month} year={periodPolicy.year} onNavigate={navigate} /> : active === 'VALIDACION_CREDITOS' ? <ValidationCreditView data={data} hiddenClientRecords={hiddenClientRecords} hiddenClientRecordsError={hiddenClientRecordsError} deletedHistoryRecords={deletedHistoryRecords} deletedHistoryError={deletedHistoryError} onDeletedHistoryRecord={(record) => setDeletedHistoryRecords((current) => current.some((item) => item.client_identity === record.client_identity && item.transaction_key === record.transaction_key) ? current : [...current, record])} onDeletePerson={deleteValidationPerson} /> : <ModuleView module={active} data={data} rows={filteredRows} totalRows={rows.length} search={search} onSearch={setSearch} creditFilters={creditFilters} onCreditFiltersChange={setCreditFilters} onNew={() => { if (!datedOperationalModules.has(active) || periodPolicy.canRegister) { if (syncState === 'synced') setShowForm(true); else flashNotice('Espera a que conecte con la base compartida antes de agregar registros.') } else flashNotice(periodPolicy.message) }} onPhysicalCount={() => setShowPhysicalCount(true)} onDelete={deleteRow} onDeleteClient={deleteClient} deletingRecord={deletingRecord} hiddenClientRecordsError={hiddenClientRecordsError} onNotice={flashNotice} physicalCountsError={physicalCountsError} />}
     </main>
     {showForm && active !== 'MENU' && <RecordForm module={active} data={data} physicalCounts={physicalCounts} periodPolicy={periodPolicy} hiddenClientRecords={hiddenClientRecords} onClose={() => setShowForm(false)} onSave={saveRow} />}
     {showPhysicalCount && <PhysicalInventoryCountModal data={data} counts={physicalCounts} setupError="" onClose={() => setShowPhysicalCount(false)} onSave={savePhysicalCounts} />}
@@ -739,41 +724,21 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
   return next
 }
 
-function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenClientRecordsError, deletedHistoryRecords, deletedHistoryError, onDeletedHistoryRecord, onDeletePerson }: { data: Record<ModuleKey, WorkbookRow[]>; periodPolicy: PeriodPolicy; hiddenClientRecords: HiddenClientRecord[]; hiddenClientRecordsError: string; deletedHistoryRecords: DeletedValidationHistoryRecord[]; deletedHistoryError: string; onDeletedHistoryRecord: (record: DeletedValidationHistoryRecord) => void; onDeletePerson: (person: ValidationCreditPerson) => Promise<void> }) {
+function ValidationCreditView({ data, hiddenClientRecords, hiddenClientRecordsError, deletedHistoryRecords, deletedHistoryError, onDeletedHistoryRecord, onDeletePerson }: { data: Record<ModuleKey, WorkbookRow[]>; hiddenClientRecords: HiddenClientRecord[]; hiddenClientRecordsError: string; deletedHistoryRecords: DeletedValidationHistoryRecord[]; deletedHistoryError: string; onDeletedHistoryRecord: (record: DeletedValidationHistoryRecord) => void; onDeletePerson: (person: ValidationCreditPerson) => Promise<void> }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [movements, setMovements] = useState<SavedValidationCreditMovement[]>([])
   const [movementLoadError, setMovementLoadError] = useState('')
   const [isLoadingMovements, setIsLoadingMovements] = useState(true)
-  const [showMovementForm, setShowMovementForm] = useState(false)
   const [showHistoryPdfModal, setShowHistoryPdfModal] = useState(false)
   const [historyPdfPersonSheet, setHistoryPdfPersonSheet] = useState('')
   const [historyPdfError, setHistoryPdfError] = useState('')
   const [isGeneratingHistoryPdf, setIsGeneratingHistoryPdf] = useState(false)
-  const [isSavingMovement, setIsSavingMovement] = useState(false)
-  const [movementFormError, setMovementFormError] = useState('')
   const [movementActionError, setMovementActionError] = useState('')
   const [movementNotice, setMovementNotice] = useState('')
   const [historyDeleteCandidate, setHistoryDeleteCandidate] = useState<{ person: string; transaction: ValidationCreditTransaction } | null>(null)
   const [deletingMovementId, setDeletingMovementId] = useState<string | null>(null)
   const [deletingPersonSheet, setDeletingPersonSheet] = useState<string | null>(null)
-  const [personQuery, setPersonQuery] = useState('')
-  const [personOptionsOpen, setPersonOptionsOpen] = useState(false)
-  const [activePersonIndex, setActivePersonIndex] = useState(-1)
-  const [form, setForm] = useState<ValidationCreditFormValues>(() => ({
-    requestId: '',
-    personSheet: '',
-    type: 'CREDITO',
-    date: localDateInputValue(),
-    code: '',
-    detail: '',
-    quantity: '1',
-    unitValue: '',
-    discount: '0',
-    paymentAmount: '',
-    business: '',
-    businessDetail: '',
-  }))
   const deletedHistoryKeys = useMemo(() => new Set(deletedHistoryRecords.map((record) => record.transaction_key)), [deletedHistoryRecords])
   const allPeople = useMemo(() => getValidationCreditPeople(data, movements, deletedHistoryKeys)
     .filter((person) => !hiddenClientRecords.some((record) => record.hidden_from_validation && record.client_identity === normalizeClientName(person.sheet)))
@@ -810,50 +775,6 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
       ...totals,
     }
   }, [people, summary])
-  const selectedPerson = allPeople.find((person) => person.sheet === form.personSheet)
-  const personCreditCodeOptions = useMemo(() => {
-    const optionsByCode = new Map<string, CodeSearchOption>()
-    selectedPerson?.transactions.forEach((transaction) => {
-      const code = transaction.codigo?.trim()
-      if (!transaction.sourceCreditId || transaction.tipo !== 'COMPRA' || !code) return
-      optionsByCode.set(normalizeCode(code), {
-        code,
-        detail: transaction.detalle ?? '',
-        quantity: transaction.cantidad,
-        unitValue: transaction.valor,
-        discount: transaction.descuento,
-        hint: `Precio ${currency.format(transaction.valor)} · Descuento ${currency.format(transaction.descuento)}`,
-      })
-    })
-    return [...optionsByCode.values()].sort((a, b) => a.code.localeCompare(b.code, 'es', { sensitivity: 'base', numeric: true }))
-  }, [selectedPerson])
-  const applyPersonCreditCode = (option: CodeSearchOption) => setForm((current) => ({
-    ...current,
-    code: option.code,
-    detail: option.detail,
-    quantity: option.quantity !== undefined && option.quantity > 0 ? String(option.quantity) : '1',
-    unitValue: option.unitValue !== undefined && option.unitValue > 0 ? String(option.unitValue) : '',
-    discount: option.discount !== undefined && option.discount >= 0 ? String(option.discount) : '0',
-  }))
-  const updatePersonCreditCode = (value: string) => {
-    const existingCode = personCreditCodeOptions.find((option) => normalizeCode(option.code) === normalizeCode(value))
-    if (existingCode) {
-      applyPersonCreditCode(existingCode)
-      return
-    }
-    setForm((current) => ({ ...current, code: value, detail: '', unitValue: '', discount: '0' }))
-  }
-  const matchingFormPeople = useMemo(() => {
-    const needle = personQuery.trim().toLocaleLowerCase('es')
-    return allPeople.filter((person) => !needle || `${person.name} ${person.sheet}`.toLocaleLowerCase('es').includes(needle))
-  }, [allPeople, personQuery])
-  const quantity = Number(form.quantity)
-  const unitValue = Number(form.unitValue)
-  const discount = Number(form.discount)
-  const purchaseTotal = quantity * unitValue - discount
-  const balanceAfter = selectedPerson
-    ? selectedPerson.saldoPendiente + (form.type === 'CREDITO' ? purchaseTotal : -Number(form.paymentAmount || 0))
-    : 0
 
   useEffect(() => {
     let active = true
@@ -894,114 +815,6 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [])
-
-  function openMovementForm(personSheet = '') {
-    if (!periodPolicy.canRegister) {
-      setMovementFormError(periodPolicy.message)
-      return
-    }
-    setMovementNotice('')
-    setMovementFormError('')
-    setPersonQuery(allPeople.find((person) => person.sheet === personSheet)?.name ?? '')
-    setPersonOptionsOpen(false)
-    setActivePersonIndex(-1)
-    setForm({
-      requestId: crypto.randomUUID(),
-      personSheet,
-      type: 'CREDITO',
-      date: localDateInputValue(),
-      code: '',
-      detail: '',
-      quantity: '1',
-      unitValue: '',
-      discount: '0',
-      paymentAmount: '',
-      business: '',
-      businessDetail: '',
-    })
-    setShowMovementForm(true)
-  }
-
-  async function saveValidationMovement(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setMovementFormError('')
-    const dateError = validateOperationalDate(form.date, periodPolicy)
-    if (dateError) {
-      setMovementFormError(dateError)
-      return
-    }
-    const person = allPeople.find((item) => item.sheet === form.personSheet)
-    if (!person) {
-      setMovementFormError('Selecciona una persona de la lista del Excel.')
-      return
-    }
-    if (!form.business) {
-      setMovementFormError('Selecciona la categoría de negocio, como en el formulario del Excel.')
-      return
-    }
-    if (form.business === 'OTRO' && !form.businessDetail.trim()) {
-      setMovementFormError('Escribe la categoría del negocio.')
-      return
-    }
-    const quantityValue = Number(form.quantity)
-    const unitValueAmount = Number(form.unitValue)
-    const discountAmount = Number(form.discount || 0)
-    const paymentAmount = Number(form.paymentAmount)
-    const total = quantityValue * unitValueAmount - discountAmount
-    if (form.type === 'CREDITO') {
-      if (!form.code.trim() || !form.detail.trim()) {
-        setMovementFormError('El código y la descripción son obligatorios para registrar un crédito.')
-        return
-      }
-      if (!Number.isFinite(quantityValue) || quantityValue <= 0 || !Number.isFinite(unitValueAmount) || unitValueAmount <= 0) {
-        setMovementFormError('La cantidad y el valor deben ser mayores a cero.')
-        return
-      }
-      if (!Number.isFinite(discountAmount) || discountAmount < 0 || !Number.isFinite(total) || total <= 0) {
-        setMovementFormError('El descuento no puede ser negativo ni superar el valor de la compra.')
-        return
-      }
-    } else if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-      setMovementFormError('El valor del abono debe ser mayor a cero.')
-      return
-    }
-    if (!supabase) {
-      setMovementFormError('No hay conexión con Supabase para guardar el movimiento.')
-      return
-    }
-    const row = {
-      request_id: form.requestId,
-      person_sheet: person.sheet,
-      movement_type: form.type,
-      movement_date: form.date,
-      code: form.type === 'CREDITO' ? form.code.trim() : null,
-      detail: form.type === 'CREDITO' ? form.detail.trim() : 'ABONO',
-      quantity: form.type === 'CREDITO' ? quantityValue : 0,
-      unit_value: form.type === 'CREDITO' ? unitValueAmount : 0,
-      discount: form.type === 'CREDITO' ? discountAmount : 0,
-      total: form.type === 'CREDITO' ? total : 0,
-      payment_amount: form.type === 'ABONO' ? paymentAmount : 0,
-      balance_after: balanceAfter,
-      business: form.business === 'OTRO' ? form.businessDetail.trim() : form.business,
-    }
-    setIsSavingMovement(true)
-    try {
-      let saved = await supabase.from(validationCreditTable).insert(row).select('*').single()
-      if (saved.error?.code === '23505') {
-        saved = await supabase.from(validationCreditTable).select('*').eq('request_id', form.requestId).single()
-      }
-      if (saved.error) throw new Error(saved.error.message)
-      const savedMovement = parseSavedValidationMovement(saved.data)
-      setMovements((current) => current.some((movement) => movement.request_id === form.requestId) ? current : [...current, savedMovement])
-      window.dispatchEvent(new CustomEvent('sportivos:refresh'))
-      setShowMovementForm(false)
-      setMovementNotice(`${form.type === 'CREDITO' ? 'Crédito' : 'Abono'} registrado para ${person.sheet}.`)
-    } catch (error) {
-      setMovementFormError('No se pudo guardar el movimiento. ' + (error instanceof Error ? error.message : 'Error desconocido.'))
-    } finally {
-      setIsSavingMovement(false)
-    }
-  }
 
   async function deleteValidationMovement(row: ValidationCreditPerson['transactions'][number], personSheet: string, personName: string) {
     if (!row.savedMovementId || !supabase || deletingMovementId) return
@@ -1120,31 +933,8 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
     setShowHistoryPdfModal(true)
   }
 
-  function selectValidationPerson(sheet: string) {
-    const person = allPeople.find((item) => item.sheet === sheet)
-    if (!person) return
-    setPersonQuery(person.sheet)
-    setPersonOptionsOpen(false)
-    setActivePersonIndex(-1)
-    setForm((current) => ({ ...current, personSheet: person.sheet, code: '', detail: '', quantity: '1', unitValue: '', discount: '0' }))
-  }
-  function handleValidationPersonKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === 'ArrowDown' && matchingFormPeople.length) {
-      event.preventDefault()
-      setPersonOptionsOpen(true)
-      setActivePersonIndex((index) => Math.min(index + 1, matchingFormPeople.length - 1))
-    } else if (event.key === 'ArrowUp' && matchingFormPeople.length) {
-      event.preventDefault()
-      setPersonOptionsOpen(true)
-      setActivePersonIndex((index) => Math.max(index - 1, 0))
-    } else if (event.key === 'Enter' && personOptionsOpen && matchingFormPeople.length) {
-      event.preventDefault()
-      selectValidationPerson((matchingFormPeople[activePersonIndex] ?? matchingFormPeople[0]).sheet)
-    } else if (event.key === 'Escape') setPersonOptionsOpen(false)
-  }
   return <section className="page-content">
-      <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">El historial de cada persona se carga desde CREDITOS. Los movimientos nuevos de este módulo se guardan aparte y no modifican CLIENTES ni CREDITOS.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button><button className="primary-button" type="button" onClick={() => openMovementForm()} disabled={!periodPolicy.canRegister} title={periodPolicy.canRegister ? 'Registrar movimiento del mes en curso' : periodPolicy.message}><span className="plus">+</span> Registrar crédito o abono</button></div></div>
-    {!periodPolicy.canRegister && <p className="sync-warning" role="alert">{periodPolicy.message}</p>}
+      <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">El historial se consulta desde CREDITOS; esta vista no permite registrar créditos ni abonos.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button></div></div>
     {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
     {hiddenClientRecordsError && <p className="sync-warning" role="alert">El borrado de personas completas necesita la migración supabase/migrations/20261110120000_clientes_eliminados.sql. {hiddenClientRecordsError}</p>}
     {deletedHistoryError && <p className="sync-warning" role="alert">{deletedHistoryError}</p>}
@@ -1186,8 +976,8 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
               </tr>
               {isSelected && <tr className="validation-credit-person-details-row"><td className="validation-credit-person-details-cell" colSpan={7}>
                 <div className="validation-credit-person-details">
-                  <div className="validation-credit-person-heading"><strong>Ficha de {person.sheet}</strong><button className="small-action" type="button" onClick={() => openMovementForm(person.sheet)}>Registrar crédito o abono</button></div>
-                  <p className="validation-credit-actions-hint">El historial de CREDITOS es de solo lectura aquí; solo puedes eliminar los movimientos nuevos de VALIDACION CREDITOS.</p>
+                  <div className="validation-credit-person-heading"><strong>Ficha de {person.sheet}</strong></div>
+                  <p className="validation-credit-actions-hint">Los créditos y abonos se consultan desde CREDITOS. Aquí no se registran movimientos.</p>
                   <div className="table-wrap validation-credit-history-wrap"><table className="validation-credit-history-table">
                     <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Negocio</th><th>Acciones</th></tr></thead>
                     <tbody>{recentTransactions.map((row, index) => {
@@ -1209,36 +999,6 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecords, hiddenC
       <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => setShowHistoryPdfModal(false)} disabled={isGeneratingHistoryPdf}>Cancelar</button><button className="primary-button" type="button" onClick={() => void generatePersonHistoryPdf()} disabled={isGeneratingHistoryPdf || !historyPdfPersonSheet}>{isGeneratingHistoryPdf ? 'Generando PDF...' : 'Descargar historial completo'}</button></div>
     </section></div>}
     {historyDeleteCandidate && <ValidationHistoryDeleteModal person={historyDeleteCandidate.person} row={historyDeleteCandidate.transaction} personBalance={allPeople.find((person) => person.sheet === historyDeleteCandidate.person)?.saldoPendiente ?? 0} busy={deletingMovementId !== null} onClose={() => setHistoryDeleteCandidate(null)} onConfirm={() => void deleteImportedValidationMovement(historyDeleteCandidate.person, historyDeleteCandidate.transaction)} />}
-    {showMovementForm && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !isSavingMovement) setShowMovementForm(false) }}><section className="modal validation-credit-modal" role="dialog" aria-modal="true" aria-labelledby="validation-credit-form-title">
-      <div className="modal-heading"><div><p className="eyebrow">REGISTRO DE CARTERA</p><h2 id="validation-credit-form-title">Crédito o abono</h2><p>Flujo basado en frmRegistroCredito del Excel.</p></div><button className="close-button" type="button" onClick={() => setShowMovementForm(false)} aria-label="Cerrar" disabled={isSavingMovement}>×</button></div>
-      <form onSubmit={(event) => void saveValidationMovement(event)}>
-        <div className="validation-credit-form-grid">
-          <label>Persona<div className="validation-credit-person-search">
-            <input required role="combobox" aria-label="Buscar persona para el movimiento" aria-autocomplete="list" aria-expanded={personOptionsOpen} aria-controls="validation-credit-person-options" aria-activedescendant={personOptionsOpen && activePersonIndex >= 0 ? `validation-credit-person-option-${activePersonIndex}` : undefined} autoComplete="off" placeholder="Escribe el nombre o código de la persona" value={personQuery} onFocus={() => setPersonOptionsOpen(true)} onBlur={() => window.setTimeout(() => setPersonOptionsOpen(false), 150)} onChange={(event) => { setPersonQuery(event.target.value); setPersonOptionsOpen(true); setActivePersonIndex(-1); setForm((current) => ({ ...current, personSheet: '', code: '', detail: '', quantity: '1', unitValue: '', discount: '0' })) }} onKeyDown={handleValidationPersonKeyDown} />
-            {personOptionsOpen && <div className="validation-credit-person-options" id="validation-credit-person-options" role="listbox" aria-label="Personas coincidentes">{matchingFormPeople.length ? matchingFormPeople.map((person, index) => <button key={person.sheet} id={`validation-credit-person-option-${index}`} type="button" role="option" aria-selected={person.sheet === form.personSheet} className={index === activePersonIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => selectValidationPerson(person.sheet)}><strong>{person.sheet}</strong></button>) : <span className="validation-credit-person-empty">No hay personas coincidentes</span>}</div>}
-          </div></label>
-          <label>Fecha<input required type="date" min={periodPolicy.firstDate} max={periodPolicy.today} value={form.date} onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))} /></label>
-        </div>
-        <fieldset className="validation-credit-type"><legend>Tipo de movimiento</legend><label><input type="radio" name="validation-credit-type" checked={form.type === 'CREDITO'} onChange={() => setForm((current) => ({ ...current, type: 'CREDITO' }))} /> Crédito</label><label><input type="radio" name="validation-credit-type" checked={form.type === 'ABONO'} onChange={() => setForm((current) => ({ ...current, type: 'ABONO' }))} /> Abono</label></fieldset>
-        {form.type === 'CREDITO' ? <div className="validation-credit-form-grid">
-          <label>Código de esta persona en CREDITOS<SearchableCodeInput value={form.code} options={personCreditCodeOptions} onChange={updatePersonCreditCode} onSelect={applyPersonCreditCode} allowCustom required placeholder={personCreditCodeOptions.length ? 'Escribe o busca un código del historial' : 'Escribe un código'} ariaLabel={`Buscar código en CREDITOS de ${selectedPerson?.sheet ?? 'la persona'}`} /></label>
-          <label>Descripción<input required value={form.detail} onChange={(event) => setForm((current) => ({ ...current, detail: event.target.value }))} /></label>
-          <label>Cantidad<input required type="number" min="0.01" step="any" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
-          <label>Valor unitario<input required type="number" min="1" step="1" value={form.unitValue} onChange={(event) => setForm((current) => ({ ...current, unitValue: event.target.value }))} /></label>
-          <label>Descuento<input type="number" min="0" step="1" value={form.discount} onChange={(event) => setForm((current) => ({ ...current, discount: event.target.value }))} /></label>
-          <label>Categoría de negocio<select required value={form.business} onChange={(event) => setForm((current) => ({ ...current, business: event.target.value, businessDetail: '' }))}><option value="">Selecciona negocio</option>{validationCreditBusinesses.map((business) => <option key={business} value={business}>{business === 'OTRO' ? 'Otro' : business}</option>)}</select></label>
-          {form.business === 'OTRO' && <label>Escribe la categoría<input required value={form.businessDetail} onChange={(event) => setForm((current) => ({ ...current, businessDetail: event.target.value }))} placeholder="Nombre de la categoría" /></label>}
-        </div> : <div className="validation-credit-form-grid">
-          <label>Valor del abono<input required type="number" min="1" step="1" value={form.paymentAmount} onChange={(event) => setForm((current) => ({ ...current, paymentAmount: event.target.value }))} /></label>
-          <label>Categoría de negocio<select required value={form.business} onChange={(event) => setForm((current) => ({ ...current, business: event.target.value, businessDetail: '' }))}><option value="">Selecciona negocio</option>{validationCreditBusinesses.map((business) => <option key={business} value={business}>{business === 'OTRO' ? 'Otro' : business}</option>)}</select></label>
-          {form.business === 'OTRO' && <label>Escribe la categoría<input required value={form.businessDetail} onChange={(event) => setForm((current) => ({ ...current, businessDetail: event.target.value }))} placeholder="Nombre de la categoría" /></label>}
-        </div>}
-        <div className="validation-credit-balance-preview"><span>{form.type === 'CREDITO' ? 'Total de la compra' : 'Saldo después del abono'}</span><strong>{currency.format(form.type === 'CREDITO' ? purchaseTotal : balanceAfter)}</strong><small>Saldo anterior: {currency.format(selectedPerson?.saldoPendiente ?? 0)} · Nuevo saldo: {currency.format(balanceAfter)}</small></div>
-        {movementFormError && <p className="form-error" role="alert">{movementFormError}</p>}
-        {movementLoadError && <p className="form-error" role="alert">No se puede guardar hasta que la tabla de movimientos esté disponible en Supabase.</p>}
-        <div className="modal-actions"><button className="secondary-button" type="button" onClick={() => setShowMovementForm(false)} disabled={isSavingMovement}>Cancelar</button><button className="primary-button" type="submit" disabled={isSavingMovement || Boolean(movementLoadError)}>{isSavingMovement ? 'Guardando...' : form.type === 'CREDITO' ? 'Registrar crédito' : 'Registrar abono'}</button></div>
-      </form>
-    </section></div>}
   </section>
 }
 
