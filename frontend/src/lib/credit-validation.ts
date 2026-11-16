@@ -147,27 +147,25 @@ export function mergeValidationCreditMovements(
 
   return [...peopleByIdentity.values()].map((sourcePerson) => {
     const sourceKeys = getValidationCreditTransactionKeys(sourcePerson.sheet, sourcePerson.transactions)
-    const sourceTransactions = sourcePerson.transactions
-      .filter((transaction, index) => Boolean(transaction.sourceCreditId) || !deletedTransactions.has(sourceKeys[index]))
-    const sourceDelta = sourcePerson.transactions.reduce((total, transaction) => total + (
-      transaction.tipo === 'ABONO' ? -transaction.abona
+    const sourceEntries = sourcePerson.transactions.map((transaction, index) => ({
+      transaction,
+      key: sourceKeys[index],
+      delta: transaction.tipo === 'ABONO' ? -transaction.abona
         : transaction.tipo === 'DEVOLUCION' ? -transaction.total
-          : transaction.total || transaction.valor
-    ), 0)
-    const openingBalance = sourcePerson.saldoPendiente - sourceDelta
-    let sourceBalance = openingBalance
-    const recalculatedSourceTransactions = sourcePerson.transactions.map((transaction, index) => ({ transaction, key: sourceKeys[index] }))
-      .filter(({ transaction, key }) => Boolean(transaction.sourceCreditId) || !deletedTransactions.has(key))
-      .map(({ transaction, key }) => {
-      if (transaction.sourceCreditId) {
-        sourceBalance = transaction.debe
-        return { ...transaction, sourceTransactionKey: key }
-      }
-      sourceBalance += transaction.tipo === 'ABONO' ? -transaction.abona
-        : transaction.tipo === 'DEVOLUCION' ? -transaction.total
-          : transaction.total || transaction.valor
-      return { ...transaction, sourceTransactionKey: key, debe: sourceBalance, tieneDebe: true }
+          : transaction.total || transaction.valor,
+    }))
+    let originalBalance = sourceEntries.length ? sourceEntries[0].transaction.debe - sourceEntries[0].delta : sourcePerson.saldoPendiente
+    let sourceBalance = originalBalance
+    const recalculatedSourceTransactions = sourceEntries.flatMap(({ transaction, key, delta }, index) => {
+      const correction = index === 0 ? 0 : transaction.debe - (originalBalance + delta)
+      originalBalance = transaction.debe
+      if (deletedTransactions.has(key)) return []
+      sourceBalance += delta + correction
+      return [{ ...transaction, sourceTransactionKey: key, debe: sourceBalance, tieneDebe: true }]
     })
+    const sourceTransactions = sourceEntries
+      .filter(({ key }) => !deletedTransactions.has(key))
+      .map(({ transaction }) => transaction)
     const person: ValidationCreditPerson = {
       ...sourcePerson,
       transactions: recalculatedSourceTransactions,
