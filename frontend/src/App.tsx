@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
-import { getCreditHistoryPeople, getValidationCreditSummary, mergeValidationCreditMovements, validationCreditClientAliases, type SavedValidationCreditMovement, type ValidationCreditPerson, type ValidationCreditTransaction } from './lib/credit-validation'
+import { getCreditHistoryPeople, getValidationCreditSummary, mergeValidationCreditMovements, validationCreditClientAliases, type ValidationCreditPerson, type ValidationCreditTransaction } from './lib/credit-validation'
 
 const currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const number = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 })
@@ -672,8 +672,7 @@ async function readRemoteData(): Promise<RemoteSnapshot> {
       if (page.length < pageSize) return rows
     }
   }
-  const [entries, validationRows] = await Promise.all([
-    Promise.all((Object.keys(remoteTableByModule) as ModuleKey[]).map(async (module) => {
+  const entries = await Promise.all((Object.keys(remoteTableByModule) as ModuleKey[]).map(async (module) => {
     const table = remoteTableByModule[module]
     if (!table) return [module, []] as const
     try {
@@ -682,10 +681,7 @@ async function readRemoteData(): Promise<RemoteSnapshot> {
     } catch (error) {
       throw new Error(module + ': ' + (error instanceof Error ? error.message : String(error)))
     }
-    })),
-    readTable(validationCreditTable),
-  ])
-  entries.push(['VALIDACION_CREDITOS', validationRows] as const)
+  }))
   return {
     data: { ...emptyWorkbookData(), ...Object.fromEntries(entries) } as Record<ModuleKey, WorkbookRow[]>,
     physicalCounts: [],
@@ -727,9 +723,6 @@ function toRemoteRow(module: ModuleKey, row: WorkbookRow): WorkbookRow {
 function ValidationCreditView({ data, hiddenClientRecords, hiddenClientRecordsError, deletedHistoryRecords, deletedHistoryError, onDeletedHistoryRecord, onDeletePerson }: { data: Record<ModuleKey, WorkbookRow[]>; hiddenClientRecords: HiddenClientRecord[]; hiddenClientRecordsError: string; deletedHistoryRecords: DeletedValidationHistoryRecord[]; deletedHistoryError: string; onDeletedHistoryRecord: (record: DeletedValidationHistoryRecord) => void; onDeletePerson: (person: ValidationCreditPerson) => Promise<void> }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
-  const [movements, setMovements] = useState<SavedValidationCreditMovement[]>([])
-  const [movementLoadError, setMovementLoadError] = useState('')
-  const [isLoadingMovements, setIsLoadingMovements] = useState(true)
   const [showHistoryPdfModal, setShowHistoryPdfModal] = useState(false)
   const [historyPdfPersonSheet, setHistoryPdfPersonSheet] = useState('')
   const [historyPdfError, setHistoryPdfError] = useState('')
@@ -740,10 +733,10 @@ function ValidationCreditView({ data, hiddenClientRecords, hiddenClientRecordsEr
   const [deletingMovementId, setDeletingMovementId] = useState<string | null>(null)
   const [deletingPersonSheet, setDeletingPersonSheet] = useState<string | null>(null)
   const deletedHistoryKeys = useMemo(() => new Set(deletedHistoryRecords.map((record) => record.transaction_key)), [deletedHistoryRecords])
-  const allPeople = useMemo(() => getValidationCreditPeople(data, movements, deletedHistoryKeys)
+  const allPeople = useMemo(() => getValidationCreditPeople(data, deletedHistoryKeys)
     .filter((person) => !hiddenClientRecords.some((record) => record.hidden_from_validation && record.client_identity === normalizeClientName(person.sheet)))
     .slice()
-    .sort((a, b) => compareClientNames(a.sheet, b.sheet)), [data, movements, hiddenClientRecords, deletedHistoryKeys])
+    .sort((a, b) => compareClientNames(a.sheet, b.sheet)), [data, hiddenClientRecords, deletedHistoryKeys])
   const summary = useMemo(() => getValidationCreditSummary(allPeople), [allPeople])
   const clientBalanceByIdentity = useMemo(() => new Map(
     getRows('CLIENTES', data)
@@ -776,88 +769,6 @@ function ValidationCreditView({ data, hiddenClientRecords, hiddenClientRecordsEr
     }
   }, [people, summary])
 
-  useEffect(() => {
-    let active = true
-    async function loadMovements() {
-      if (!supabase) {
-        setMovementLoadError('Falta la conexión con Supabase; no se pueden cargar movimientos nuevos.')
-        setIsLoadingMovements(false)
-        return
-      }
-      const result = await readAllValidationMovementRows(supabase)
-      if (!active) return
-      if (result.error) {
-        setMovementLoadError('No se pudieron cargar los movimientos nuevos. Verifica que la tabla de validación esté configurada en Supabase. ' + result.error.message)
-      } else {
-        setMovementLoadError('')
-        setMovements((result.data ?? []).map(parseSavedValidationMovement))
-      }
-      setIsLoadingMovements(false)
-    }
-    const refresh = () => {
-      void loadMovements().catch((error: unknown) => {
-        if (!active) return
-        setMovementLoadError('No se pudieron cargar los movimientos nuevos. ' + (error instanceof Error ? error.message : 'Error desconocido.'))
-        setIsLoadingMovements(false)
-      })
-    }
-    refresh()
-    const timer = window.setInterval(refresh, 30_000)
-    window.addEventListener('focus', refresh)
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') refresh()
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange)
-    return () => {
-      active = false
-      window.clearInterval(timer)
-      window.removeEventListener('focus', refresh)
-      document.removeEventListener('visibilitychange', onVisibilityChange)
-    }
-  }, [])
-
-  async function deleteValidationMovement(row: ValidationCreditPerson['transactions'][number], personSheet: string, personName: string) {
-    if (!row.savedMovementId || !supabase || deletingMovementId) return
-    const description = [
-      `Persona: ${personName}`,
-      `Fecha: ${row.fecha ?? 'sin fecha'}`,
-      `Movimiento: ${row.tipo === 'ABONO' ? 'abono' : 'crédito'}`,
-      row.detalle ? `Detalle: ${row.detalle}` : '',
-      `Valor: ${currency.format(row.tipo === 'ABONO' ? row.abona : row.total || row.valor)}`,
-    ].filter(Boolean).join('\n')
-    if (!window.confirm(`¿Eliminar este movimiento de VALIDACION CREDITOS?\n\n${description}\n\nSe actualizarán los totales y el saldo de este módulo. Esta acción no se puede deshacer.`)) return
-
-    setDeletingMovementId(row.savedMovementId)
-    setMovementActionError('')
-    let deletionConfirmed = false
-    try {
-      const result = await supabase.from(validationCreditTable).delete().eq('id', row.savedMovementId).select('id')
-      if (result.error) throw new Error(result.error.message)
-      if (result.data?.length !== 1) throw new Error('No se encontró el movimiento para eliminarlo.')
-      deletionConfirmed = true
-      const remainingMovements = movements.filter((movement) => movement.id !== row.savedMovementId)
-      setMovements(remainingMovements)
-      window.dispatchEvent(new CustomEvent('sportivos:refresh'))
-      const localBalance = getValidationCreditPeople({ ...data, VALIDACION_CREDITOS: [] }, remainingMovements, deletedHistoryKeys)
-        .find((person) => getValidationClientIdentity(person.sheet) === getValidationClientIdentity(personSheet))?.saldoPendiente ?? 0
-      setMovementNotice(`Movimiento eliminado. Saldo actualizado para ${personName}: ${currency.format(localBalance)}.`)
-      const refreshed = await readAllValidationMovementRows(supabase)
-      if (refreshed.error) throw new Error(refreshed.error.message)
-      const currentMovements = (refreshed.data ?? []).map(parseSavedValidationMovement)
-      setMovements(currentMovements)
-      const updatedBalance = getValidationCreditPeople({ ...data, VALIDACION_CREDITOS: [] }, currentMovements, deletedHistoryKeys)
-        .find((person) => getValidationClientIdentity(person.sheet) === getValidationClientIdentity(personSheet))?.saldoPendiente ?? 0
-      setMovementNotice(`Movimiento eliminado. Saldo actualizado para ${personName}: ${currency.format(updatedBalance)}.`)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Error desconocido.'
-      setMovementActionError(deletionConfirmed
-        ? 'El movimiento se eliminó y el saldo ya se recalculó; no se pudo confirmar la recarga desde Supabase. ' + message
-        : 'No se pudo eliminar el movimiento. ' + message)
-    } finally {
-      setDeletingMovementId(null)
-    }
-  }
-
   async function deleteImportedValidationMovement(personSheet: string, row: ValidationCreditTransaction) {
     const transactionKey = row.sourceTransactionKey
     if (!transactionKey || !supabase || deletingMovementId) return
@@ -889,16 +800,11 @@ function ValidationCreditView({ data, hiddenClientRecords, hiddenClientRecordsEr
 
   async function deleteValidationPersonRecord(person: ValidationCreditPerson) {
     if (deletingPersonSheet) return
-    const savedMovements = movements.filter((movement) => normalizeClientName(movement.person_sheet) === normalizeClientName(person.sheet)).length
-    const historyDescription = savedMovements
-      ? `${savedMovements} movimiento(s) guardado(s) de VALIDACION CREDITOS`
-      : 'sus movimientos guardados de VALIDACION CREDITOS'
-    if (!window.confirm(`¿Ocultar a ${person.sheet} de VALIDACION CREDITOS?\n\nSe quitará ${historyDescription} de este módulo. Su historial real en CREDITOS y CLIENTES se conservará.`)) return
+    if (!window.confirm(`¿Ocultar a ${person.sheet} de VALIDACION CREDITOS?\n\nSu historial en CREDITOS y CLIENTES se conservará.`)) return
     setDeletingPersonSheet(person.sheet)
     setMovementActionError('')
     try {
       await onDeletePerson(person)
-      setMovements((current) => current.filter((movement) => normalizeClientName(movement.person_sheet) !== normalizeClientName(person.sheet)))
       setSelected((current) => current === person.sheet ? null : current)
     } catch (error) {
       setMovementActionError('No se pudo eliminar la persona de VALIDACION CREDITOS. ' + (error instanceof Error ? error.message : 'Error desconocido.'))
@@ -934,13 +840,11 @@ function ValidationCreditView({ data, hiddenClientRecords, hiddenClientRecordsEr
   }
 
   return <section className="page-content">
-      <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">El historial se consulta desde CREDITOS; esta vista no permite registrar créditos ni abonos.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button></div></div>
-    {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
+      <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Esta vista consulta el historial de CREDITOS y no permite registrar movimientos.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} title="Descargar el historial completo de una persona">Historial PDF</button></div></div>
     {hiddenClientRecordsError && <p className="sync-warning" role="alert">El borrado de personas completas necesita la migración supabase/migrations/20261110120000_clientes_eliminados.sql. {hiddenClientRecordsError}</p>}
     {deletedHistoryError && <p className="sync-warning" role="alert">{deletedHistoryError}</p>}
     {movementNotice && <p className="validation-credit-notice" role="status">{movementNotice}</p>}
     {movementActionError && <p className="form-error" role="alert">{movementActionError}</p>}
-    {isLoadingMovements && <p className="validation-credit-loading" role="status">Cargando movimientos del módulo...</p>}
     {balanceMismatches.length
       ? <p className="sync-warning" role="alert">Hay diferencias de saldo entre CLIENTES y VALIDACION CREDITOS para {balanceMismatches.length} persona(s): {balanceMismatches.slice(0, 5).map((person) => person.sheet).join(', ')}. No se ocultaron ni corrigieron automáticamente.</p>
       : <p className="validation-credit-notice" role="status">Conciliación de saldos: CLIENTES y VALIDACION CREDITOS coinciden en {allPeople.length} personas.</p>}
@@ -981,8 +885,8 @@ function ValidationCreditView({ data, hiddenClientRecords, hiddenClientRecordsEr
                   <div className="table-wrap validation-credit-history-wrap"><table className="validation-credit-history-table">
                     <thead><tr><th>Fecha</th><th>Código</th><th>Detalle</th><th>Cantidad</th><th>Valor</th><th>Abono</th><th>Debe</th><th>Tipo</th><th>Negocio</th><th>Acciones</th></tr></thead>
                     <tbody>{recentTransactions.map((row, index) => {
-                      const movementId = row.savedMovementId ?? row.sourceTransactionKey
-                      return <tr key={movementId ?? `${person.sheet}-${index}`}><td data-label="Fecha">{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td data-label="Código">{row.codigo ?? '—'}</td><td className="validation-credit-history-detail" data-label="Detalle">{row.detalle ?? '—'}</td><td data-label="Cantidad">{row.cantidad || 0}</td><td data-label="Valor">{currency.format(row.total || row.valor || 0)}</td><td data-label="Abono">{currency.format(row.abona)}</td><td data-label="Debe">{currency.format(row.debe)}</td><td data-label="Tipo">{row.tipo}</td><td data-label="Negocio">{row.negocio ?? '—'}</td><td className="validation-credit-actions-cell" data-label="Acciones"><div className="validation-credit-row-actions">{row.sourceCreditId ? <span className="status-pill ok">CREDITOS</span> : <button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => row.savedMovementId ? void deleteValidationMovement(row, person.sheet, person.sheet) : setHistoryDeleteCandidate({ person: person.sheet, transaction: row })} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : row.tipo === 'DEVOLUCION' ? 'devolución' : 'crédito'} de ${person.sheet}`} title="Eliminar movimiento">{deletingMovementId === movementId ? 'Eliminando…' : 'Eliminar'}</button>}</div></td></tr>
+                      const movementId = row.sourceTransactionKey
+                      return <tr key={movementId ?? `${person.sheet}-${index}`}><td data-label="Fecha">{row.fecha ? new Date(row.fecha + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td><td data-label="Código">{row.codigo ?? '—'}</td><td className="validation-credit-history-detail" data-label="Detalle">{row.detalle ?? '—'}</td><td data-label="Cantidad">{row.cantidad || 0}</td><td data-label="Valor">{currency.format(row.total || row.valor || 0)}</td><td data-label="Abono">{currency.format(row.abona)}</td><td data-label="Debe">{currency.format(row.debe)}</td><td data-label="Tipo">{row.tipo}</td><td data-label="Negocio">{row.negocio ?? '—'}</td><td className="validation-credit-actions-cell" data-label="Acciones"><div className="validation-credit-row-actions">{row.sourceCreditId ? <span className="status-pill ok">CREDITOS</span> : <button className="delete-button" type="button" disabled={deletingMovementId !== null} onClick={() => setHistoryDeleteCandidate({ person: person.sheet, transaction: row })} aria-label={`Eliminar ${row.tipo === 'ABONO' ? 'abono' : row.tipo === 'DEVOLUCION' ? 'devolución' : 'crédito'} de ${person.sheet}`} title="Eliminar movimiento">{deletingMovementId === movementId ? 'Eliminando…' : 'Eliminar'}</button>}</div></td></tr>
                     })}</tbody>
                   </table></div>
                 </div>
@@ -1002,39 +906,8 @@ function ValidationCreditView({ data, hiddenClientRecords, hiddenClientRecordsEr
   </section>
 }
 
-function parseSavedValidationMovement(value: unknown): SavedValidationCreditMovement {
-  if (typeof value !== 'object' || value === null) throw new Error('Supabase devolvió un movimiento con formato inválido.')
-  const row = value as Record<string, unknown>
-  const movementType = row.movement_type === 'ABONO' ? 'ABONO' : row.movement_type === 'CREDITO' ? 'CREDITO' : null
-  if (!movementType || typeof row.person_sheet !== 'string' || typeof row.movement_date !== 'string') {
-    throw new Error('Supabase devolvió un movimiento de validación incompleto.')
-  }
-  return {
-    id: String(row.id),
-    request_id: String(row.request_id),
-    person_sheet: row.person_sheet,
-    movement_type: movementType,
-    movement_date: row.movement_date.slice(0, 10),
-    code: typeof row.code === 'string' ? row.code : null,
-    detail: typeof row.detail === 'string' ? row.detail : null,
-    quantity: Number(row.quantity ?? 0),
-    unit_value: Number(row.unit_value ?? 0),
-    discount: Number(row.discount ?? 0),
-    total: Number(row.total ?? 0),
-    payment_amount: Number(row.payment_amount ?? 0),
-    balance_after: Number(row.balance_after ?? 0),
-    business: String(row.business ?? ''),
-    created_at: String(row.created_at ?? ''),
-  }
-}
-
-function getValidationLedgerMovements(data: Record<ModuleKey, WorkbookRow[]>, localMovements: SavedValidationCreditMovement[] = []): SavedValidationCreditMovement[] {
-  return deduplicateMovementSources([data.VALIDACION_CREDITOS.map(parseSavedValidationMovement), localMovements])
-}
-
 function getValidationCreditPeople(
   data: Record<ModuleKey, WorkbookRow[]>,
-  localMovements: SavedValidationCreditMovement[] = [],
   deletedHistoryKeys: ReadonlySet<string> = new Set(),
 ): ValidationCreditPerson[] {
   const creditHistoryPeople = getCreditHistoryPeople(getRows('CREDITOS', data)).map((person) => {
@@ -1042,7 +915,7 @@ function getValidationCreditPeople(
     return { ...person, name: sheet, sheet }
   })
   return mergeValidationCreditMovements(
-    getValidationLedgerMovements(data, localMovements),
+    [],
     creditHistoryPeople,
     deletedHistoryKeys,
   )
@@ -1081,48 +954,6 @@ function getClientLedgerPeople(
     })
     return { sheet: getValidationClientSheet(name) ?? name, saldoPendiente: balance }
   }).sort((a, b) => compareClientNames(a.sheet, b.sheet))
-}
-
-function deduplicateMovementSources(sources: SavedValidationCreditMovement[][]): SavedValidationCreditMovement[] {
-  const result: SavedValidationCreditMovement[] = []
-  const previousMaximums = new Map<string, number>()
-  for (const source of sources) {
-    const sourceCounts = new Map<string, number>()
-    for (const movement of source) {
-      const key = validationMovementIdentity(movement)
-      const occurrence = (sourceCounts.get(key) ?? 0) + 1
-      sourceCounts.set(key, occurrence)
-      if (occurrence > (previousMaximums.get(key) ?? 0)) result.push(movement)
-    }
-    sourceCounts.forEach((count, key) => previousMaximums.set(key, Math.max(count, previousMaximums.get(key) ?? 0)))
-  }
-  return result
-}
-
-function validationMovementIdentity(movement: SavedValidationCreditMovement): string {
-  return [
-    getValidationClientIdentity(movement.person_sheet),
-    movement.movement_date.slice(0, 10),
-    movement.movement_type,
-    normalizeCode(movement.code),
-    Number(movement.quantity ?? 0),
-    Number(movement.unit_value ?? 0),
-    Number(movement.discount ?? 0),
-    Number(movement.total ?? 0),
-    Number(movement.payment_amount ?? 0),
-  ].join('|')
-}
-
-async function readAllValidationMovementRows(client: NonNullable<typeof supabase>) {
-  const pageSize = 1000
-  const rows: unknown[] = []
-  for (let offset = 0; ; offset += pageSize) {
-    const result = await client.from(validationCreditTable).select('*').order('created_at', { ascending: true }).order('id', { ascending: true }).range(offset, offset + pageSize - 1)
-    if (result.error) return { data: null, error: result.error }
-    const page = result.data ?? []
-    rows.push(...page)
-    if (page.length < pageSize) return { data: rows, error: null }
-  }
 }
 
 async function readHiddenClientRecords(client: NonNullable<typeof supabase>) {
