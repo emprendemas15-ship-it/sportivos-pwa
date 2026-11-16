@@ -2,7 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import './App.css'
 import { calculateInventoryProfit, cleanExcelError, monthName, moduleColumns, type CellValue, type Column, type ModuleKey, type WorkbookRow } from './lib/workbook'
 import { hasSupabaseConfig, supabase } from './lib/supabase'
-import { getCreditHistoryPeople, getValidationCreditSummary, mergeValidationCreditMovements, validationCreditClientAliases, type SavedValidationCreditMovement, type ValidationCreditPerson, type ValidationCreditTransaction } from './lib/credit-validation'
+import { getValidationCreditSummary, mergeValidationCreditMovements, validationCreditClientAliases, type SavedValidationCreditMovement, type ValidationCreditPerson, type ValidationCreditTransaction } from './lib/credit-validation'
+import validationCreditHistory from './data/validacion-creditos.json'
 
 const currency = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })
 const number = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 2 })
@@ -787,6 +788,24 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecordsError, de
     const needle = personQuery.trim().toLocaleLowerCase('es')
     return allPeople.filter((person) => !needle || `${person.name} ${person.sheet}`.toLocaleLowerCase('es').includes(needle))
   }, [allPeople, personQuery])
+  const validationCreditCodeOptions = useMemo(() => {
+    if (!form.personSheet) return []
+    const optionsByCode = new Map<string, { code: string; detail: string; quantity: number; unitValue: number; discount: number }>()
+    getRows('CREDITOS', data).forEach((row) => {
+      if (!isCreditType(row.TIPO) || getValidationClientIdentity(row.NOMBRE) !== getValidationClientIdentity(form.personSheet)) return
+      const code = String(row.CODIGO ?? '').trim()
+      const key = normalizeCode(code)
+      if (!key) return
+      optionsByCode.set(key, {
+        code,
+        detail: String(row.DETALLE ?? '').trim(),
+        quantity: Number(row.CANT ?? 0),
+        unitValue: Number(row.PRECIO ?? 0),
+        discount: Number(row.DESCUENTO ?? 0),
+      })
+    })
+    return [...optionsByCode.values()].sort((a, b) => a.code.localeCompare(b.code, 'es', { sensitivity: 'base' }))
+  }, [data, form.personSheet])
   const quantity = Number(form.quantity)
   const unitValue = Number(form.unitValue)
   const discount = Number(form.discount)
@@ -1090,7 +1109,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecordsError, de
     } else if (event.key === 'Escape') setPersonOptionsOpen(false)
   }
   return <section className="page-content">
-      <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Consulta el historial de CREDITOS y conserva los movimientos propios de VALIDACION CREDITOS por separado.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button><button className="primary-button" type="button" onClick={() => openMovementForm()} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Cargando los movimientos propios' : movementLoadError || 'Registrar movimiento en VALIDACION CREDITOS'}><span className="plus">+</span> Registrar crédito o abono</button></div></div>
+      <div className="page-heading"><div><p className="eyebrow">VALIDACIÓN DE CARTERA</p><h1>VALIDACION CREDITOS</h1><p className="page-description">Este historial contiene los registros de VALIDACION CREDITOS. Al elegir una persona, CREDITOS solo aporta los códigos disponibles para sus créditos.</p></div><div className="validation-credit-heading-actions"><button className="secondary-button" type="button" onClick={openHistoryPdfModal} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Espera a que carguen los movimientos' : 'Descargar el historial completo de una persona'}>Historial PDF</button><button className="primary-button" type="button" onClick={() => openMovementForm()} disabled={isLoadingMovements || Boolean(movementLoadError)} title={isLoadingMovements ? 'Cargando los movimientos propios' : movementLoadError || 'Registrar movimiento en VALIDACION CREDITOS'}><span className="plus">+</span> Registrar crédito o abono</button></div></div>
     {}
     {movementLoadError && <p className="sync-warning" role="alert">{movementLoadError}</p>}
     {hiddenClientRecordsError && <p className="sync-warning" role="alert">El borrado de personas completas necesita la migración supabase/migrations/20261110120000_clientes_eliminados.sql. {hiddenClientRecordsError}</p>}
@@ -1098,7 +1117,7 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecordsError, de
     {movementNotice && <p className="validation-credit-notice" role="status">{movementNotice}</p>}
     {movementActionError && <p className="form-error" role="alert">{movementActionError}</p>}
     {isLoadingMovements && <p className="validation-credit-loading" role="status">Cargando movimientos del módulo...</p>}
-    <p className="validation-credit-notice" role="status">El historial muestra CREDITOS y los movimientos propios de VALIDACION CREDITOS. Lo consultado de CREDITOS no se copia a otra tabla.</p>
+    <p className="validation-credit-notice" role="status">El historial de esta vista es independiente de CREDITOS. CREDITOS solo se consulta para ofrecer códigos al registrar un crédito en este módulo.</p>
     <div className="summary-grid">
       <SummaryCard label="Total personas" value={number.format(filteredSummary.totalPersonas)} note="Personas registradas" tone="blue" />
       <SummaryCard label="Cartera pendiente" value={currency.format(filteredSummary.carteraPendiente)} note="Saldo neto por persona" tone="amber" />
@@ -1166,7 +1185,22 @@ function ValidationCreditView({ data, periodPolicy, hiddenClientRecordsError, de
         </div>
         <fieldset className="validation-credit-type"><legend>Tipo de movimiento</legend><label><input type="radio" name="validation-credit-type" checked={form.type === 'CREDITO'} onChange={() => setForm((current) => ({ ...current, type: 'CREDITO' }))} /> Crédito</label><label><input type="radio" name="validation-credit-type" checked={form.type === 'ABONO'} onChange={() => setForm((current) => ({ ...current, type: 'ABONO' }))} /> Abono</label></fieldset>
         {form.type === 'CREDITO' ? <div className="validation-credit-form-grid">
-          <label>Código<input required value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} placeholder="Código del movimiento" /></label>
+          <label>Código<input required list="validation-credit-code-options" value={form.code} onChange={(event) => {
+            const code = event.target.value
+            const selectedCode = validationCreditCodeOptions.find((option) => normalizeCode(option.code) === normalizeCode(code))
+            setForm((current) => ({
+              ...current,
+              code,
+              ...(selectedCode ? {
+                detail: selectedCode.detail,
+                quantity: selectedCode.quantity > 0 ? String(selectedCode.quantity) : current.quantity,
+                unitValue: selectedCode.unitValue > 0 ? String(selectedCode.unitValue) : current.unitValue,
+                discount: String(selectedCode.discount),
+              } : {}),
+            }))
+          }} placeholder={validationCreditCodeOptions.length ? 'Selecciona o escribe un código' : 'Código del movimiento'} />
+            <datalist id="validation-credit-code-options">{validationCreditCodeOptions.map((option) => <option key={option.code} value={option.code}>{option.detail}</option>)}</datalist>
+          </label>
           <label>Descripción<input required value={form.detail} onChange={(event) => setForm((current) => ({ ...current, detail: event.target.value }))} /></label>
           <label>Cantidad<input required type="number" min="0.01" step="any" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></label>
           <label>Valor unitario<input required type="number" min="1" step="1" value={form.unitValue} onChange={(event) => setForm((current) => ({ ...current, unitValue: event.target.value }))} /></label>
@@ -1218,16 +1252,16 @@ function getValidationLedgerMovements(data: Record<ModuleKey, WorkbookRow[]>, lo
 }
 
 function getValidationCreditPeople(
-  data: Record<ModuleKey, WorkbookRow[]>,
+  _data: Record<ModuleKey, WorkbookRow[]>,
   localMovements: SavedValidationCreditMovement[] = [],
   deletedHistoryKeys: ReadonlySet<string> = new Set(),
 ): ValidationCreditPerson[] {
-  const creditHistoryPeople = getCreditHistoryPeople(getRows('CREDITOS', data)).map((person) => {
+  const creditHistoryPeople = (validationCreditHistory.people as ValidationCreditPerson[]).map((person) => {
     const sheet = getValidationClientSheet(person.sheet) ?? person.sheet
     return { ...person, name: sheet, sheet }
   })
   return mergeValidationCreditMovements(
-    getValidationLedgerMovements(data, localMovements),
+    getValidationLedgerMovements(_data, localMovements),
     creditHistoryPeople,
     deletedHistoryKeys,
   )
