@@ -202,7 +202,9 @@ export function mergeValidationCreditMovements(
     const addedTransactions: ValidationCreditTransaction[] = additions.map((movement) => {
       const isPayment = movement.movement_type === 'ABONO'
       const isReturn = movement.movement_type === 'DEVOLUCION'
-      runningBalance += isPayment ? -movement.payment_amount : isReturn ? -movement.total : movement.total
+      const recordedBalance = Number(movement.balance_after)
+      runningBalance = Number.isFinite(recordedBalance) ? recordedBalance
+        : runningBalance + (isPayment ? -movement.payment_amount : isReturn ? -movement.total : movement.total)
       return {
         ...(movement.id.startsWith('credit:') ? { sourceCreditId: movement.id.slice('credit:'.length) } : { savedMovementId: movement.id }),
         fecha: movement.movement_date,

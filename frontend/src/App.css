@@ -240,6 +240,11 @@
   .refresh-button { flex: 0 0 auto; padding: 6px 8px; white-space: nowrap; }
 }
  .validation-credit-notice, .validation-credit-loading { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #cfe2d3; border-radius: 7px; color: #2d704a; background: #f0f9f1; font-size: 11px; }
+ .reconciliation-warning { display: grid; gap: 5px; margin: -8px 0 18px; padding: 12px 14px; border: 1px solid #e8cba7; border-radius: 8px; color: #7a5527; background: #fff8e9; font-size: 11px; line-height: 1.45; }
+ .reconciliation-warning > strong { color: #9a5a20; font-size: 12px; }
+ .reconciliation-warning ul { display: grid; gap: 4px; margin: 4px 0 0; padding-left: 18px; }
+ .reconciliation-warning li { overflow-wrap: anywhere; }
+ .reconciliation-warning small { color: #956b3e; }
 .validation-credit-loading { border-color: #e6ece7; color: #748278; background: #fff; }
 .validation-credit-person-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .validation-credit-person-details-cell { padding: 16px 18px !important; background: #f7faf8; }
