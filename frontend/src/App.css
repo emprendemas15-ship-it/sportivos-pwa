@@ -90,6 +90,7 @@
   .sidebar .brand { width: calc(100% - 34px); }
   .sidebar .brand-logo { width: 100%; }
   .sidebar:not(.sidebar-open):not(:hover) { transform: translateX(calc(-100% + 18px)); }
+  .sidebar:hover:not(.sidebar-open) { transform: translateX(calc(-100% + 18px)); }
   .menu-toggle { display: inline-flex; }
   .main-content { width: 100%; margin: 0; }
 }
@@ -232,7 +233,7 @@
   .validation-credit-people-table tbody .validation-credit-person-row td:first-child { padding-left: 7px; color: #284c36; font-weight: 750; }
   .validation-credit-people-table tbody .validation-credit-person-row td[data-label="Acciones"] { justify-content: flex-end; border-top: 1px solid #edf1ed; }
   .validation-credit-people-table tbody .validation-credit-person-details-row { display: block; min-width: 0; }
-  .validation-credit-people-table tbody .validation-credit-person-details-cell { display: block; padding: 12px 8px !important; }
+  .validation-credit-people-table tbody .validation-credit-person-details-cell { display: block; height: auto !important; padding: 12px 8px !important; }
   .topbar { gap: 8px; padding: 0 12px; }
   .breadcrumb { min-width: 0; gap: 6px; }
   .topbar-right { min-width: 0; gap: 9px; }
